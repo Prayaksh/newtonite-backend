@@ -5,3 +5,185 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+enum TeamRole {
+  ADMIN
+  TEAM_LEAD
+  MEMBER
+  VIEWER
+}
+
+enum WorkItemStatus {
+  OPEN
+  IN_PROGRESS
+  PENDING_APPROVAL
+  RESOLVED
+  CLOSED
+}
+
+enum WorkItemPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum WorkItemCategory {
+  CUSTOMER_ISSUE
+  ENGINEERING
+  PAYMENT
+  INCIDENT
+  COMPLIANCE
+  OPERATIONS
+  OTHER
+}
+
+enum ActivityType {
+  CREATED
+  UPDATED
+  STATUS_CHANGED
+  PRIORITY_CHANGED
+  ASSIGNED
+  TEAM_CHANGED
+  COMMENT_ADDED
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships   TeamMembership[]
+  reportedItems WorkItem[]       @relation("WorkItemReporter")
+  assignedItems WorkItem[]       @relation("WorkItemAssignee")
+  activities    Activity[]
+  idempotencyKeys IdempotencyKey[]
+
+  @@index([isActive, name])
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  description String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships TeamMembership[]
+  workItems   WorkItem[]
+
+  @@index([name])
+}
+
+model TeamMembership {
+  id        String   @id @default(cuid())
+  userId    String
+  teamId    String
+  role      TeamRole @default(MEMBER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, teamId])
+  @@index([teamId, role])
+  @@index([userId, role])
+}
+
+model WorkItem {
+  id          String           @id @default(cuid())
+  title       String
+  description String
+  category    WorkItemCategory @default(OTHER)
+  status      WorkItemStatus   @default(OPEN)
+  priority    WorkItemPriority @default(MEDIUM)
+
+  teamId     String
+  reporterId String
+  assigneeId String?
+
+  version Int @default(1)
+
+  dueAt      DateTime?
+  resolvedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  team     Team  @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  reporter User  @relation("WorkItemReporter", fields: [reporterId], references: [id], onDelete: Restrict)
+  assignee User? @relation("WorkItemAssignee", fields: [assigneeId], references: [id], onDelete: Restrict)
+
+  activities Activity[]
+  outboxEvents OutboxEvent[]
+
+  @@index([teamId, status, priority, updatedAt])
+  @@index([assigneeId, status, updatedAt])
+  @@index([reporterId, createdAt])
+  @@index([status, priority, createdAt])
+  @@index([dueAt, status])
+  @@index([updatedAt])
+}
+
+model Activity {
+  id         String       @id @default(cuid())
+  workItemId String
+  actorId    String
+  type       ActivityType
+  message    String?
+  changes    Json?
+  createdAt  DateTime     @default(now())
+
+  workItem WorkItem @relation(fields: [workItemId], references: [id], onDelete: Restrict)
+  actor    User     @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([workItemId, createdAt, id])
+  @@index([actorId, createdAt])
+}
+
+model IdempotencyKey {
+  id          String   @id @default(cuid())
+  userId      String
+  key         String
+  requestHash String
+  statusCode  Int?
+  response    Json?
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, key])
+  @@index([expiresAt])
+}
+
+model OutboxEvent {
+  id          String      @id @default(cuid())
+  workItemId  String?
+  type        String
+  payload     Json
+  status      OutboxStatus @default(PENDING)
+  attempts    Int          @default(0)
+  availableAt DateTime     @default(now())
+  lockedAt    DateTime?
+  processedAt DateTime?
+  lastError   String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  workItem WorkItem? @relation(fields: [workItemId], references: [id], onDelete: Restrict)
+
+  @@index([status, availableAt, createdAt])
+  @@index([workItemId, createdAt])
+}
