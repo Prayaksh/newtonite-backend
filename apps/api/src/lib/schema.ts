@@ -22,7 +22,7 @@ export const createWorkItemSchema = z
 
 export const updateWorkItemSchema = z
   .object({
-    version: z.number().int().positive(),
+    version: z.number().int().positive().optional(),
     title: z.string().trim().min(3).max(200).optional(),
     description: z.string().trim().min(1).max(10_000).optional(),
     priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
@@ -68,9 +68,12 @@ export const transitionSchema = z
       .enum(["OPEN", "IN_PROGRESS", "PENDING_APPROVAL", "RESOLVED", "CLOSED"])
       .optional(),
   })
-  .refine((data) => data.status !== undefined || data.target_status !== undefined, {
-    message: "status or target_status is required",
-  })
+  .refine(
+    (data) => data.status !== undefined || data.target_status !== undefined,
+    {
+      message: "status or target_status is required",
+    },
+  )
   .transform((data) => ({
     version: data.version,
     status: (data.status ?? data.target_status)!,
@@ -84,7 +87,10 @@ export const assignSchema = z
   })
   .transform((data) => ({
     version: data.version,
-    assigneeId: data.assigneeId !== undefined ? data.assigneeId : (data.assignee_id ?? null),
+    assigneeId:
+      data.assigneeId !== undefined
+        ? data.assigneeId
+        : (data.assignee_id ?? null),
   }));
 
 export const approveRejectSchema = z.object({

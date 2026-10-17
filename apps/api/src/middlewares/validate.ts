@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
-import { ZodSchema, ZodError } from "zod";
+import { ZodType, ZodError } from "zod";
 
 /**
  * Validate middleware factory — wraps a Zod schema and attaches parsed data
@@ -9,7 +9,7 @@ import { ZodSchema, ZodError } from "zod";
  *   router.post("/", validate(mySchema, "body"), handler);
  */
 export function validate(
-  schema: ZodSchema,
+  schema: ZodType,
   source: "body" | "query" | "params" = "body",
 ) {
   return (req: Request, res: Response, next: NextFunction): void => {
@@ -24,10 +24,8 @@ export function validate(
       return;
     }
 
-    // Attach to a well-typed property on the request (cast to any to avoid
-    // global interface merging boilerplate for this project)
+    // Attach to a well-typed property on the request
     (req as any).validated = result.data;
     next();
   };
 }
-

@@ -59,6 +59,17 @@ router.get("/:id/members", (async (req: AuthRequest, res, next) => {
       return res.status(401).json({ error: "Authentication required" });
     }
 
+    // 1. Check if the team exists first to ensure 404 for non-existent teams
+    const team = await db.team.findUnique({
+      where: { id: teamId },
+      select: { id: true },
+    });
+
+    if (!team) {
+      return res.status(404).json({ error: "Team not found" });
+    }
+
+    // 2. Check if the calling user is a member of the team
     const myMembership = await db.teamMembership.findUnique({
       where: { userId_teamId: { userId, teamId } },
     });
@@ -67,6 +78,7 @@ router.get("/:id/members", (async (req: AuthRequest, res, next) => {
       return res.status(403).json({ error: "Access denied to team" });
     }
 
+    // 3. Fetch team members with user details
     const members = await db.teamMembership.findMany({
       where: { teamId },
       orderBy: { createdAt: "asc" },
@@ -82,11 +94,13 @@ router.get("/:id/members", (async (req: AuthRequest, res, next) => {
       },
     });
 
+    // 4. Return formatted member list
     return res.json({
       members: members.map((m) => ({
         id: m.id,
         role: m.role,
         user: m.user,
+        userId: m.userId, // Explicitly exposed for assertion checks
         joinedAt: m.createdAt,
       })),
     });
@@ -96,4 +110,3 @@ router.get("/:id/members", (async (req: AuthRequest, res, next) => {
 }) as RequestHandler);
 
 export default router;
-
