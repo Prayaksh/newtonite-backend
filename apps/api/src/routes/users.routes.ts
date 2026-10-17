@@ -1,11 +1,12 @@
 import { Router, type RequestHandler } from "express";
 import { db } from "@repo/db";
 import type { AuthRequest } from "../middlewares/authenticate.js";
+import { generalLimiter } from "../middlewares/rate-limiter.js";
 
 const router: Router = Router();
 
 // GET /users/me - Fetch authenticated user, roles, and team scopes
-router.get("/me", (async (req: AuthRequest, res, next) => {
+router.get("/me",generalLimiter, (async (req: AuthRequest, res, next) => {
   try {
     const userId = req.userId;
 
@@ -64,4 +65,3 @@ router.get("/me", (async (req: AuthRequest, res, next) => {
 }) as RequestHandler);
 
 export default router;
-

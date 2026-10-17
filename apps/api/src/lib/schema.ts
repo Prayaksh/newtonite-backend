@@ -117,3 +117,43 @@ export const timelineQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
   before_id: z.string().optional(),
 });
+
+export const loginSchema = z
+  .object({
+    email: z
+      .string()
+      .trim()
+      .min(1, "Email is required")
+      .email("Invalid email format")
+      .transform((val) => val.toLowerCase()),
+    password: z.string().min(1, "Password is required"),
+  })
+  .strict();
+
+export const acceptInviteSchema = z
+  .object({
+    token: z.string().trim().min(1, "Invitation token is required"),
+    password: z
+      .string()
+      .min(8, "Password must be at least 8 characters long")
+      .max(100, "Password is too long"),
+    name: z.string().trim().min(1).max(100).optional(),
+  })
+  .strict();
+
+export const createInvitationSchema = z
+  .object({
+    email: z
+      .string()
+      .trim()
+      .min(1, "Email is required")
+      .email("Invalid email format")
+      .transform((val) => val.toLowerCase()),
+    teamId: z.string().min(1, "teamId is required"),
+    role: z.enum(["OWNER", "ADMIN", "MEMBER"]).default("MEMBER"),
+  })
+  .strict();
+
+export type LoginInput = z.infer<typeof loginSchema>;
+export type AcceptInviteInput = z.infer<typeof acceptInviteSchema>;
+export type CreateInvitationInput = z.infer<typeof createInvitationSchema>;

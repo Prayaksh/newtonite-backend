@@ -1,9 +1,10 @@
 import type { Request, Response, NextFunction } from "express";
+import { createHash } from "node:crypto";
 import { db } from "@repo/db";
-import { env } from "../config/env.js";
 
 export type AuthRequest = Request & {
   userId?: string;
+  sessionId?: string;
 };
 
 export async function authenticate(
@@ -11,36 +12,52 @@ export async function authenticate(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
-  if (env.nodeEnv !== "development") {
-    res.status(401).json({
-      error: "Authentication is not configured for this environment",
-    });
-    return;
-  }
+  const token = req.cookies?.sid;
 
-  const userId = req.header("X-User-Id");
-
-  if (!userId) {
+  if (typeof token !== "string" || !token) {
     res.status(401).json({
-      error: "Authentication required",
+      status: "error",
+      message: "Authentication required",
     });
     return;
   }
 
   try {
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { id: true, isActive: true },
+    const tokenHash = createHash("sha256").update(token).digest("hex");
+
+    const session = await db.authSession.findUnique({
+      where: { tokenHash },
+      select: {
+        id: true,
+        userId: true,
+        expiresAt: true,
+        user: {
+          select: {
+            id: true,
+            isActive: true,
+          },
+        },
+      },
     });
 
-    if (!user || !user.isActive) {
+    if (!session || session.expiresAt <= new Date() || !session.user.isActive) {
+      res.clearCookie("sid", {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: false,
+        path: "/",
+      });
+
       res.status(401).json({
-        error: "Invalid or inactive user",
+        status: "error",
+        message: "Invalid or expired session",
       });
       return;
     }
 
-    req.userId = user.id;
+    req.userId = session.user.id;
+    req.sessionId = session.id;
+
     next();
   } catch (error) {
     next(error);

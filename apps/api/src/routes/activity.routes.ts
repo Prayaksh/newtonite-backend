@@ -2,6 +2,7 @@ import { Router, type RequestHandler } from "express";
 import { db, type Prisma } from "@repo/db";
 import { z } from "zod";
 import type { AuthRequest } from "../middlewares/authenticate.js";
+import { generalLimiter } from "../middlewares/rate-limiter.js";
 
 const router: Router = Router();
 
@@ -19,11 +20,13 @@ const workItemIdSchema = z.string().min(1).optional();
  *   limit?      – max rows (1-100, default 20)
  *   before_id?  – cursor for keyset pagination (activity id)
  */
-router.get("/", (async (req: AuthRequest, res, next) => {
+router.get("/", generalLimiter, (async (req: AuthRequest, res, next) => {
   try {
     const userId = req.userId;
     if (!userId) {
-      return res.status(401).json({ status: "error", error: "Authentication required" });
+      return res
+        .status(401)
+        .json({ status: "error", error: "Authentication required" });
     }
 
     const teamId = teamIdSchema.parse(req.query.team_id);

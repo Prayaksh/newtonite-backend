@@ -5,13 +5,17 @@ import cookieParser from "cookie-parser";
 import { env } from "./config/env.js";
 import { db } from "@repo/db";
 import { authenticate } from "./middlewares/authenticate.js";
+
 import workItemRouter from "./routes/work-items.routes.js";
+import authRouter from "./routes/auth.routes.js";
 import userRouter from "./routes/users.routes.js";
 import teamRouter from "./routes/teams.routes.js";
 import dashboardRouter from "./routes/dashboard.routes.js";
 import notificationRouter from "./routes/notifications.routes.js";
 import activityRouter from "./routes/activity.routes.js";
+
 import { errorHandler } from "./middlewares/error-handler.js";
+import { apiLimiter } from "./middlewares/rate-limiter.js";
 
 const app: Express = express();
 
@@ -21,6 +25,8 @@ app.use(
     credentials: true,
   }),
 );
+
+app.set("trust proxy", 1);
 
 app.use(express.json());
 app.use(cookieParser(env.sessionSecret));
@@ -51,6 +57,10 @@ app.get("/db", async (_req, res, next) => {
     next(error);
   }
 });
+
+app.use("/api", apiLimiter);
+
+app.use("/api/v1/auth", authRouter);
 
 app.use("/api/v1/work-items", authenticate, workItemRouter);
 app.use("/api/work-items", authenticate, workItemRouter);

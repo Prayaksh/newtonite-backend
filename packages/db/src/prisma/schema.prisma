@@ -56,22 +56,55 @@ enum OutboxStatus {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  memberships   TeamMembership[]
-  reportedItems WorkItem[]       @relation("WorkItemReporter")
-  assignedItems WorkItem[]       @relation("WorkItemAssignee")
-  activities    Activity[]
+  memberships     TeamMembership[]
+  reportedItems   WorkItem[] @relation("WorkItemReporter")
+  assignedItems   WorkItem[] @relation("WorkItemAssignee")
+  activities      Activity[]
   idempotencyKeys IdempotencyKey[]
 
-  @@index([isActive, name])
+  sessions        AuthSession[]
+  invitationsSent Invitation[] @relation("InvitationSender")
 }
 
+model AuthSession {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Invitation {
+  id              String    @id @default(cuid())
+  email           String
+  tokenHash       String    @unique
+  teamId          String
+  role            TeamRole  @default(MEMBER)
+  invitedByUserId String
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  team      Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedBy User @relation("InvitationSender", fields: [invitedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([email, teamId])
+  @@index([email])
+  @@index([expiresAt])
+}
 model Team {
   id        String   @id @default(cuid())
   name      String
@@ -82,6 +115,7 @@ model Team {
 
   memberships TeamMembership[]
   workItems   WorkItem[]
+  invitations Invitation[]
 
   @@index([name])
 }

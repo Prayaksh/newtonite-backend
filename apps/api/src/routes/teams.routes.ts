@@ -2,12 +2,13 @@ import { Router, type RequestHandler } from "express";
 import { db } from "@repo/db";
 import { z } from "zod";
 import type { AuthRequest } from "../middlewares/authenticate.js";
+import { generalLimiter } from "../middlewares/rate-limiter.js";
 
 const router: Router = Router();
 const idSchema = z.string().min(1);
 
 // GET /teams - List operational teams
-router.get("/", (async (req: AuthRequest, res, next) => {
+router.get("/", generalLimiter, (async (req: AuthRequest, res, next) => {
   try {
     const userId = req.userId;
 
@@ -50,7 +51,11 @@ router.get("/", (async (req: AuthRequest, res, next) => {
 }) as RequestHandler);
 
 // GET /teams/:id/members - List members of a specific team
-router.get("/:id/members", (async (req: AuthRequest, res, next) => {
+router.get("/:id/members", generalLimiter, (async (
+  req: AuthRequest,
+  res,
+  next,
+) => {
   try {
     const teamId = idSchema.parse(req.params.id);
     const userId = req.userId;

@@ -2,12 +2,6 @@ import { db } from "@repo/db";
 import type { WorkItem, Activity, Prisma } from "@repo/db";
 import { eventBus } from "../lib/events.js";
 
-/**
- * Work-item service — thin domain layer between route handlers and the DB.
- * Handles OCC (version-based optimistic concurrency) and side-effects
- * (activity log entries, outbox events, SSE broadcast).
- */
-
 export type WorkItemWithRelations = WorkItem & {
   team: { id: string; name: string };
   reporter: { id: string; name: string } | null;
@@ -20,12 +14,9 @@ const includeRelations = {
   assignee: { select: { id: true, name: true } },
 } satisfies Prisma.WorkItemInclude;
 
-/** Result for any OCC-guarded mutation */
 export type OccResult<T> =
   | { ok: true; data: T }
   | { ok: false; reason: "VERSION_CONFLICT"; current: WorkItem | null };
-
-// ─── Read helpers ─────────────────────────────────────────────────────────────
 
 export async function findWorkItem(
   id: string,
@@ -36,9 +27,6 @@ export async function findWorkItem(
   }) as Promise<WorkItemWithRelations | null>;
 }
 
-// ─── Mutation helpers ─────────────────────────────────────────────────────────
-
-/** Generic OCC update — returns null if version mismatch */
 async function occUpdate(
   id: string,
   version: number,
@@ -87,12 +75,10 @@ async function occUpdate(
     return { ok: false, reason: "VERSION_CONFLICT", current };
   }
 
-  // Broadcast immediately over SSE (outbox worker also dispatches async)
   eventBus.broadcast({ type: outboxType, workItemId: id, data: result });
   return { ok: true, data: result as WorkItemWithRelations };
 }
 
-/** PATCH — update editable fields */
 export async function updateWorkItem(
   id: string,
   version: number,
@@ -124,7 +110,6 @@ export async function updateWorkItem(
   );
 }
 
-/** Assign / claim */
 export async function assignWorkItem(
   id: string,
   version: number,
@@ -148,7 +133,6 @@ export async function assignWorkItem(
   );
 }
 
-/** Transition status */
 export async function transitionWorkItem(
   id: string,
   version: number,
@@ -171,7 +155,6 @@ export async function transitionWorkItem(
   );
 }
 
-/** Approve (PENDING_APPROVAL → RESOLVED) */
 export async function approveWorkItem(
   id: string,
   version: number,
@@ -194,7 +177,6 @@ export async function approveWorkItem(
   );
 }
 
-/** Reject (PENDING_APPROVAL → IN_PROGRESS) */
 export async function rejectWorkItem(
   id: string,
   version: number,
