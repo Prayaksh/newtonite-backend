@@ -14,6 +14,7 @@ import {
 } from "../lib/schema.js";
 
 import { withIdempotency } from "../lib/idempotency.js";
+import { eventBus } from "../lib/events.js";
 
 const router: Router = Router();
 
@@ -207,6 +208,32 @@ router.post("/", (async (req: AuthRequest, res, next) => {
   }
 }) as RequestHandler);
 
+// Real-Time Server-Sent Events (SSE) stream for work-item updates
+router.get("/events", (req: AuthRequest, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+
+  // Send initial connected event
+  res.write(`data: ${JSON.stringify({ type: "CONNECTED", timestamp: new Date().toISOString() })}\n\n`);
+
+  const onEvent = (event: any) => {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
+
+  eventBus.on("work-item-event", onEvent);
+
+  const heartbeat = setInterval(() => {
+    res.write(": heartbeat\n\n");
+  }, 25_000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    eventBus.off("work-item-event", onEvent);
+  });
+});
+
 // 3. Get single work item (returns ETag / version)
 router.get("/:id", (async (req: AuthRequest, res, next) => {
   try {
@@ -342,6 +369,7 @@ router.patch("/:id", (async (req: AuthRequest, res, next) => {
       });
     }
 
+    eventBus.broadcast({ type: "WORK_ITEM_UPDATED", workItemId: id, data: item });
     return res.json({ item });
   } catch (error) {
     next(error);
@@ -449,6 +477,7 @@ router.post("/:id/assign", (async (req: AuthRequest, res, next) => {
       });
     }
 
+    eventBus.broadcast({ type: "WORK_ITEM_ASSIGNED", workItemId: id, data: item });
     return res.json({ item });
   } catch (error) {
     next(error);
@@ -556,6 +585,7 @@ router.post("/:id/transition", (async (req: AuthRequest, res, next) => {
       });
     }
 
+    eventBus.broadcast({ type: "WORK_ITEM_STATUS_CHANGED", workItemId: id, data: item });
     return res.json({ item });
   } catch (error) {
     next(error);
@@ -655,13 +685,12 @@ router.post("/:id/approve", (async (req: AuthRequest, res, next) => {
       });
     }
 
+    eventBus.broadcast({ type: "WORK_ITEM_APPROVED", workItemId: id, data: item });
     return res.json({ item });
   } catch (error) {
     next(error);
   }
 }) as RequestHandler);
-
-// 8. Reject work item (ADMIN or TEAM_LEAD only, OCC)
 router.post("/:id/reject", (async (req: AuthRequest, res, next) => {
   try {
     const id = idSchema.parse(req.params.id);
@@ -753,6 +782,7 @@ router.post("/:id/reject", (async (req: AuthRequest, res, next) => {
       });
     }
 
+    eventBus.broadcast({ type: "WORK_ITEM_REJECTED", workItemId: id, data: item });
     return res.json({ item });
   } catch (error) {
     next(error);

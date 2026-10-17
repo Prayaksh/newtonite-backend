@@ -8,6 +8,9 @@ import { authenticate } from "./middlewares/authenticate.js";
 import workItemRouter from "./routes/work-items.routes.js";
 import userRouter from "./routes/users.routes.js";
 import teamRouter from "./routes/teams.routes.js";
+import dashboardRouter from "./routes/dashboard.routes.js";
+import notificationRouter from "./routes/notifications.routes.js";
+import activityRouter from "./routes/activity.routes.js";
 import { errorHandler } from "./middlewares/error-handler.js";
 
 const app: Express = express();
@@ -57,6 +60,15 @@ app.use("/api/users", authenticate, userRouter);
 
 app.use("/api/v1/teams", authenticate, teamRouter);
 app.use("/api/teams", authenticate, teamRouter);
+
+app.use("/api/v1/dashboard", authenticate, dashboardRouter);
+app.use("/api/dashboard", authenticate, dashboardRouter);
+
+app.use("/api/v1/notifications", authenticate, notificationRouter);
+app.use("/api/notifications", authenticate, notificationRouter);
+
+app.use("/api/v1/activity", authenticate, activityRouter);
+app.use("/api/activity", authenticate, activityRouter);
 
 app.use((_req, res) => {
   res.status(404).json({
