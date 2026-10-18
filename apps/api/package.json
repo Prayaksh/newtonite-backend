@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "test:unit": "node --import tsx --test src/tests/unit-schema.test.mjs",
+    "test:integration": "node --env-file=.env --test src/tests/idempotency.test.mjs src/tests/occ-concurrency.test.mjs src/tests/smoke.test.mjs"
   },
   "keywords": [],
   "author": "",

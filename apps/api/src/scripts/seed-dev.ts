@@ -2,9 +2,11 @@ import { db } from "@repo/db";
 import bcrypt from "bcryptjs";
 
 async function main() {
-  const password = process.env.DEV_USER_PASSWORD;
+  const password = "dev@123";
   if (!password) {
-    throw new Error("Set DEV_USER_PASSWORD before seeding the development user");
+    throw new Error(
+      "Set DEV_USER_PASSWORD before seeding the development user",
+    );
   }
 
   const passwordHash = await bcrypt.hash(password, 12);

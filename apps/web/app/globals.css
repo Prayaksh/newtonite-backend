@@ -1,24 +1,28 @@
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  color-scheme: dark;
+  --color-primary: #4f46e5;
+  --color-secondary: #06b6d4;
+  --color-amber: #f59e0b;
+  --color-emerald: #10b981;
+  --color-danger: #ef4444;
+  --color-bg-dark: #0f172a;
+  --color-surface: #1e293b;
+  --color-text-light: #f8fafc;
 }
 
 html,
 body {
+  min-height: 100%;
   max-width: 100vw;
   overflow-x: hidden;
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
+  color: var(--color-text-light);
+  background: var(--color-bg-dark);
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 * {
@@ -32,19 +36,18 @@ a {
   text-decoration: none;
 }
 
-.imgDark {
-  display: none;
+button,
+input,
+select,
+textarea {
+  font: inherit;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
-
-  .imgLight {
-    display: none;
-  }
-  .imgDark {
-    display: unset;
-  }
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--color-secondary);
+  outline-offset: 3px;
 }

@@ -155,12 +155,32 @@ pnpm --filter @repo/api dev
 pnpm --filter @repo/api build
 ```
 
-### Running Integration Tests
+### Running Web Tests
+
+Run the React component/unit suite:
 ```sh
-# Run idempotency and OCC concurrency test suites
-node --env-file=apps/api/.env --test apps/api/src/tests/idempotency.test.mjs
-node --env-file=apps/api/.env --test apps/api/src/tests/occ-concurrency.test.mjs
-node --env-file=apps/api/.env --test apps/api/src/tests/smoke.test.mjs
+pnpm --filter @repo/web test
+```
+
+The browser E2E suite uses Playwright and a mocked API, so it exercises the real
+dashboard in Chromium without creating or modifying database records:
+```sh
+pnpm --filter @repo/web exec playwright install chromium
+pnpm --filter @repo/web test:e2e
+```
+
+### Running API Integration Tests
+
+Start PostgreSQL, Redis, and the API server, then configure the test user and
+team credentials in `apps/api/.env` as described in Database Setup & Seeding.
+The suite creates test work items in that database.
+
+```sh
+# Database-independent input validation/schema tests
+pnpm --filter @repo/api test:unit
+
+# Live API, idempotency, OCC, and route integration tests
+pnpm --filter @repo/api test:integration
 ```
 
 ---

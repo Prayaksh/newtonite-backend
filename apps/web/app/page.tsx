@@ -94,12 +94,18 @@ export default function DashboardPage() {
   // Selected Item Drawer / Detail
   const [selectedItem, setSelectedItem] = useState<WorkItem | null>(null);
   const [timeline, setTimeline] = useState<Activity[]>([]);
-  const [teamMembers, setTeamMembers] = useState<{ id: string; role: string; user: { id: string; name: string } }[]>([]);
+  const [teamMembers, setTeamMembers] = useState<
+    { id: string; role: string; user: { id: string; name: string } }[]
+  >([]);
 
   // Modals
   const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
   const [showEditModal, setShowEditModal] = useState<boolean>(false);
-  const [conflictData, setConflictData] = useState<{ error: string; current: WorkItem; attempted: Partial<WorkItem> } | null>(null);
+  const [conflictData, setConflictData] = useState<{
+    error: string;
+    current: WorkItem;
+    attempted: Partial<WorkItem>;
+  } | null>(null);
 
   // Forms
   const [createForm, setCreateForm] = useState({
@@ -124,16 +130,23 @@ export default function DashboardPage() {
   const [commentText, setCommentText] = useState("");
   const [isInternalComment, setIsInternalComment] = useState(false);
   const [reasonText, setReasonText] = useState("");
-  const [showReasonInput, setShowReasonInput] = useState<"approve" | "reject" | null>(null);
+  const [showReasonInput, setShowReasonInput] = useState<
+    "approve" | "reject" | null
+  >(null);
 
-  const getHeaders = useCallback(() => ({ "Content-Type": "application/json" }), []);
+  const getHeaders = useCallback(
+    () => ({ "Content-Type": "application/json" }),
+    [],
+  );
 
   // Load User, Teams, and Stats
   const loadInitialData = useCallback(async () => {
     try {
       const headers = getHeaders();
 
-      const sessionRes = await apiFetch(`${API_BASE}/api/v1/auth/me`, { headers });
+      const sessionRes = await apiFetch(`${API_BASE}/api/v1/auth/me`, {
+        headers,
+      });
       if (sessionRes.status === 401) {
         setUser(null);
         return;
@@ -156,7 +169,9 @@ export default function DashboardPage() {
       }
 
       // Fetch dashboard stats
-      const statsRes = await apiFetch(`${API_BASE}/api/v1/dashboard/stats`, { headers });
+      const statsRes = await apiFetch(`${API_BASE}/api/v1/dashboard/stats`, {
+        headers,
+      });
       if (statsRes.ok) {
         const s = await statsRes.json();
         setStats(s);
@@ -190,37 +205,53 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [getHeaders, selectedTeam, selectedStatus, selectedPriority, searchQuery, user]);
+  }, [
+    getHeaders,
+    selectedTeam,
+    selectedStatus,
+    selectedPriority,
+    searchQuery,
+    user,
+  ]);
 
   // Load Timeline & Members for selected item
-  const loadItemDetails = useCallback(async (item: WorkItem) => {
-    setSelectedItem(item);
-    setEditForm({
-      title: item.title,
-      description: item.description,
-      priority: item.priority,
-    });
-    setShowReasonInput(null);
+  const loadItemDetails = useCallback(
+    async (item: WorkItem) => {
+      setSelectedItem(item);
+      setEditForm({
+        title: item.title,
+        description: item.description,
+        priority: item.priority,
+      });
+      setShowReasonInput(null);
 
-    try {
-      const headers = getHeaders();
-      // Load timeline
-      const timelineRes = await apiFetch(`${API_BASE}/api/v1/work-items/${item.id}/timeline`, { headers });
-      if (timelineRes.ok) {
-        const data = await timelineRes.json();
-        setTimeline(data.activities);
-      }
+      try {
+        const headers = getHeaders();
+        // Load timeline
+        const timelineRes = await apiFetch(
+          `${API_BASE}/api/v1/work-items/${item.id}/timeline`,
+          { headers },
+        );
+        if (timelineRes.ok) {
+          const data = await timelineRes.json();
+          setTimeline(data.activities);
+        }
 
-      // Load team members
-      const membersRes = await apiFetch(`${API_BASE}/api/v1/teams/${item.teamId}/members`, { headers });
-      if (membersRes.ok) {
-        const data = await membersRes.json();
-        setTeamMembers(data.members);
+        // Load team members
+        const membersRes = await apiFetch(
+          `${API_BASE}/api/v1/teams/${item.teamId}/members`,
+          { headers },
+        );
+        if (membersRes.ok) {
+          const data = await membersRes.json();
+          setTeamMembers(data.members);
+        }
+      } catch (err) {
+        console.error("Failed to load item timeline:", err);
       }
-    } catch (err) {
-      console.error("Failed to load item timeline:", err);
-    }
-  }, [getHeaders]);
+    },
+    [getHeaders],
+  );
 
   useEffect(() => {
     loadInitialData();
@@ -350,14 +381,17 @@ export default function DashboardPage() {
     const targetVersion = overrideVersion ?? selectedItem.version;
 
     try {
-      const res = await apiFetch(`${API_BASE}/api/v1/work-items/${selectedItem.id}`, {
-        method: "PATCH",
-        headers: {
-          ...getHeaders(),
-          "If-Match": `"${targetVersion}"`,
+      const res = await apiFetch(
+        `${API_BASE}/api/v1/work-items/${selectedItem.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            ...getHeaders(),
+            "If-Match": `"${targetVersion}"`,
+          },
+          body: JSON.stringify(editForm),
         },
-        body: JSON.stringify(editForm),
-      });
+      );
 
       if (res.status === 409) {
         // OCC 409 Conflict detected!
@@ -387,18 +421,23 @@ export default function DashboardPage() {
     if (!selectedItem) return;
 
     try {
-      const res = await apiFetch(`${API_BASE}/api/v1/work-items/${selectedItem.id}/transition`, {
-        method: "POST",
-        headers: getHeaders(),
-        body: JSON.stringify({
-          version: selectedItem.version,
-          target_status: targetStatus,
-        }),
-      });
+      const res = await apiFetch(
+        `${API_BASE}/api/v1/work-items/${selectedItem.id}/transition`,
+        {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({
+            version: selectedItem.version,
+            target_status: targetStatus,
+          }),
+        },
+      );
 
       if (res.status === 409) {
         const conflict = await res.json();
-        alert(`Concurrency Conflict: Another user modified this item to version ${conflict.current?.version}. Refreshing.`);
+        alert(
+          `Concurrency Conflict: Another user modified this item to version ${conflict.current?.version}. Refreshing.`,
+        );
         loadItemDetails(conflict.current);
       } else if (res.ok) {
         const data = await res.json();
@@ -418,18 +457,23 @@ export default function DashboardPage() {
     if (!selectedItem) return;
 
     try {
-      const res = await apiFetch(`${API_BASE}/api/v1/work-items/${selectedItem.id}/${action}`, {
-        method: "POST",
-        headers: getHeaders(),
-        body: JSON.stringify({
-          version: selectedItem.version,
-          reason: reasonText || undefined,
-        }),
-      });
+      const res = await apiFetch(
+        `${API_BASE}/api/v1/work-items/${selectedItem.id}/${action}`,
+        {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({
+            version: selectedItem.version,
+            reason: reasonText || undefined,
+          }),
+        },
+      );
 
       if (res.status === 409) {
         const conflict = await res.json();
-        alert(`Concurrency Conflict: Version changed to ${conflict.current?.version}. Refreshing.`);
+        alert(
+          `Concurrency Conflict: Version changed to ${conflict.current?.version}. Refreshing.`,
+        );
         loadItemDetails(conflict.current);
       } else if (res.ok) {
         const data = await res.json();
@@ -451,18 +495,23 @@ export default function DashboardPage() {
     if (!selectedItem) return;
 
     try {
-      const res = await apiFetch(`${API_BASE}/api/v1/work-items/${selectedItem.id}/assign`, {
-        method: "POST",
-        headers: getHeaders(),
-        body: JSON.stringify({
-          version: selectedItem.version,
-          assignee_id: assigneeId || null,
-        }),
-      });
+      const res = await apiFetch(
+        `${API_BASE}/api/v1/work-items/${selectedItem.id}/assign`,
+        {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({
+            version: selectedItem.version,
+            assignee_id: assigneeId || null,
+          }),
+        },
+      );
 
       if (res.status === 409) {
         const conflict = await res.json();
-        alert(`Concurrency Conflict: Version changed to ${conflict.current?.version}. Refreshing.`);
+        alert(
+          `Concurrency Conflict: Version changed to ${conflict.current?.version}. Refreshing.`,
+        );
         loadItemDetails(conflict.current);
       } else if (res.ok) {
         const data = await res.json();
@@ -480,17 +529,20 @@ export default function DashboardPage() {
     if (!selectedItem || !commentText.trim()) return;
 
     try {
-      const res = await apiFetch(`${API_BASE}/api/v1/work-items/${selectedItem.id}/comments`, {
-        method: "POST",
-        headers: {
-          ...getHeaders(),
-          "Idempotency-Key": crypto.randomUUID(),
+      const res = await apiFetch(
+        `${API_BASE}/api/v1/work-items/${selectedItem.id}/comments`,
+        {
+          method: "POST",
+          headers: {
+            ...getHeaders(),
+            "Idempotency-Key": crypto.randomUUID(),
+          },
+          body: JSON.stringify({
+            body: commentText.trim(),
+            is_internal: isInternalComment,
+          }),
         },
-        body: JSON.stringify({
-          body: commentText.trim(),
-          is_internal: isInternalComment,
-        }),
-      });
+      );
 
       if (res.ok) {
         setCommentText("");
@@ -504,22 +556,33 @@ export default function DashboardPage() {
   // Priority and Status Badge styling helper
   const getStatusBadgeClass = (status: string) => {
     switch (status) {
-      case "OPEN": return `${styles.badge} ${styles.badgeOpen}`;
-      case "IN_PROGRESS": return `${styles.badge} ${styles.badgeInProgress}`;
-      case "PENDING_APPROVAL": return `${styles.badge} ${styles.badgePendingApproval}`;
-      case "RESOLVED": return `${styles.badge} ${styles.badgeResolved}`;
-      case "CLOSED": return `${styles.badge} ${styles.badgeClosed}`;
-      default: return styles.badge;
+      case "OPEN":
+        return `${styles.badge} ${styles.badgeOpen}`;
+      case "IN_PROGRESS":
+        return `${styles.badge} ${styles.badgeInProgress}`;
+      case "PENDING_APPROVAL":
+        return `${styles.badge} ${styles.badgePendingApproval}`;
+      case "RESOLVED":
+        return `${styles.badge} ${styles.badgeResolved}`;
+      case "CLOSED":
+        return `${styles.badge} ${styles.badgeClosed}`;
+      default:
+        return styles.badge;
     }
   };
 
   const getPriorityBadgeClass = (priority: string) => {
     switch (priority) {
-      case "URGENT": return `${styles.badge} ${styles.badgeUrgent}`;
-      case "HIGH": return `${styles.badge} ${styles.badgeHigh}`;
-      case "MEDIUM": return `${styles.badge} ${styles.badgeMedium}`;
-      case "LOW": return `${styles.badge} ${styles.badgeLow}`;
-      default: return styles.badge;
+      case "URGENT":
+        return `${styles.badge} ${styles.badgeUrgent}`;
+      case "HIGH":
+        return `${styles.badge} ${styles.badgeHigh}`;
+      case "MEDIUM":
+        return `${styles.badge} ${styles.badgeMedium}`;
+      case "LOW":
+        return `${styles.badge} ${styles.badgeLow}`;
+      default:
+        return styles.badge;
     }
   };
 
@@ -535,10 +598,16 @@ export default function DashboardPage() {
             <div className={styles.brandIcon}>OM</div>
             <div>
               <div className={styles.brandTitle}>Operational Work System</div>
-              <div className={styles.brandSubtitle}>Sign in to your account</div>
+              <div className={styles.brandSubtitle}>
+                Sign in to your account
+              </div>
             </div>
           </div>
-          {authError && <p className={styles.authError} role="alert">{authError}</p>}
+          {authError && (
+            <p className={styles.authError} role="alert">
+              {authError}
+            </p>
+          )}
           <label className={styles.formGroup}>
             <span className={styles.formLabel}>Email</span>
             <input
@@ -561,7 +630,11 @@ export default function DashboardPage() {
               onChange={(event) => setPassword(event.target.value)}
             />
           </label>
-          <button className={styles.btnPrimary} type="submit" disabled={loginLoading}>
+          <button
+            className={styles.btnPrimary}
+            type="submit"
+            disabled={loginLoading}
+          >
             {loginLoading ? "Signing in..." : "Sign in"}
           </button>
         </form>
@@ -577,7 +650,9 @@ export default function DashboardPage() {
           <div className={styles.brandIcon}>OM</div>
           <div>
             <div className={styles.brandTitle}>Operational Work System</div>
-            <div className={styles.brandSubtitle}>Concurrency & Workflow Engine</div>
+            <div className={styles.brandSubtitle}>
+              Concurrency & Workflow Engine
+            </div>
           </div>
         </div>
 
@@ -590,10 +665,16 @@ export default function DashboardPage() {
           <div className={styles.userCard}>
             <span>{user.name}</span>
             {user.memberships[0] && (
-              <span className={styles.userRole}>{user.memberships[0].role}</span>
+              <span className={styles.userRole}>
+                {user.memberships[0].role}
+              </span>
             )}
           </div>
-          <button className={styles.btnSecondary} type="button" onClick={handleLogout}>
+          <button
+            className={styles.btnSecondary}
+            type="button"
+            onClick={handleLogout}
+          >
             Sign out
           </button>
         </div>
@@ -708,13 +789,25 @@ export default function DashboardPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className={styles.td} style={{ textAlign: "center", padding: "2rem" }}>
+                  <td
+                    colSpan={7}
+                    className={styles.td}
+                    style={{ textAlign: "center", padding: "2rem" }}
+                  >
                     Loading work items...
                   </td>
                 </tr>
               ) : workItems.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className={styles.td} style={{ textAlign: "center", padding: "2rem", color: "#64748b" }}>
+                  <td
+                    colSpan={7}
+                    className={styles.td}
+                    style={{
+                      textAlign: "center",
+                      padding: "2rem",
+                      color: "#64748b",
+                    }}
+                  >
                     No work items found matching the selected filters.
                   </td>
                 </tr>
@@ -739,15 +832,24 @@ export default function DashboardPage() {
                         {item.priority}
                       </span>
                     </td>
-                    <td className={styles.td}>{item.team?.name || "Unassigned"}</td>
-                    <td className={styles.td}>{item.assignee?.name || "Unclaimed"}</td>
                     <td className={styles.td}>
-                      <span className={`${styles.badge} ${styles.badgeVersion}`}>
+                      {item.team?.name || "Unassigned"}
+                    </td>
+                    <td className={styles.td}>
+                      {item.assignee?.name || "Unclaimed"}
+                    </td>
+                    <td className={styles.td}>
+                      <span
+                        className={`${styles.badge} ${styles.badgeVersion}`}
+                      >
                         v{item.version}
                       </span>
                     </td>
                     <td className={styles.td}>
-                      {new Date(item.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      {new Date(item.updatedAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
                     </td>
                   </tr>
                 ))
@@ -759,7 +861,10 @@ export default function DashboardPage() {
 
       {/* Work Item Detail & Actions Drawer Modal */}
       {selectedItem && (
-        <div className={styles.modalOverlay} onClick={() => setSelectedItem(null)}>
+        <div
+          className={styles.modalOverlay}
+          onClick={() => setSelectedItem(null)}
+        >
           <div
             className={styles.drawerContent}
             onClick={(e) => e.stopPropagation()}
@@ -775,7 +880,10 @@ export default function DashboardPage() {
                 <span className={`${styles.badge} ${styles.badgeVersion}`}>
                   v{selectedItem.version}
                 </span>
-                <h2 className={styles.modalTitle} style={{ marginTop: "0.5rem" }}>
+                <h2
+                  className={styles.modalTitle}
+                  style={{ marginTop: "0.5rem" }}
+                >
                   {selectedItem.title}
                 </h2>
               </div>
@@ -791,23 +899,48 @@ export default function DashboardPage() {
               {/* Description */}
               <div style={{ marginBottom: "1.5rem" }}>
                 <div className={styles.formLabel}>Description</div>
-                <div style={{ background: "#f8fafc", padding: "1rem", borderRadius: "0.375rem", border: "1px solid #e2e8f0" }}>
+                <div
+                  style={{
+                    background: "#f8fafc",
+                    padding: "1rem",
+                    borderRadius: "0.375rem",
+                    border: "1px solid #e2e8f0",
+                  }}
+                >
                   {selectedItem.description}
                 </div>
               </div>
 
               {/* Action Toolbar */}
-              <div style={{ background: "#f1f5f9", padding: "1rem", borderRadius: "0.5rem", marginBottom: "1.5rem" }}>
-                <div className={styles.formLabel} style={{ marginBottom: "0.75rem" }}>
+              <div
+                style={{
+                  background: "#f1f5f9",
+                  padding: "1rem",
+                  borderRadius: "0.5rem",
+                  marginBottom: "1.5rem",
+                }}
+              >
+                <div
+                  className={styles.formLabel}
+                  style={{ marginBottom: "0.75rem" }}
+                >
                   Workflow State Transitions (Optimistic Concurrency Guarded)
                 </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+                <div
+                  style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}
+                >
                   {selectedItem.status === "OPEN" && (
                     <>
-                      <button className={styles.btnPrimary} onClick={() => handleTransition("IN_PROGRESS")}>
+                      <button
+                        className={styles.btnPrimary}
+                        onClick={() => handleTransition("IN_PROGRESS")}
+                      >
                         Start Work →
                       </button>
-                      <button className={styles.btnSecondary} onClick={() => handleTransition("CLOSED")}>
+                      <button
+                        className={styles.btnSecondary}
+                        onClick={() => handleTransition("CLOSED")}
+                      >
                         Discard / Close
                       </button>
                     </>
@@ -815,13 +948,22 @@ export default function DashboardPage() {
 
                   {selectedItem.status === "IN_PROGRESS" && (
                     <>
-                      <button className={styles.btnPrimary} onClick={() => handleTransition("PENDING_APPROVAL")}>
+                      <button
+                        className={styles.btnPrimary}
+                        onClick={() => handleTransition("PENDING_APPROVAL")}
+                      >
                         Submit for Review →
                       </button>
-                      <button className={styles.btnSuccess} onClick={() => handleTransition("RESOLVED")}>
+                      <button
+                        className={styles.btnSuccess}
+                        onClick={() => handleTransition("RESOLVED")}
+                      >
                         Direct Resolve
                       </button>
-                      <button className={styles.btnSecondary} onClick={() => handleTransition("CLOSED")}>
+                      <button
+                        className={styles.btnSecondary}
+                        onClick={() => handleTransition("CLOSED")}
+                      >
                         Close
                       </button>
                     </>
@@ -846,31 +988,52 @@ export default function DashboardPage() {
 
                   {selectedItem.status === "RESOLVED" && (
                     <>
-                      <button className={styles.btnSecondary} onClick={() => handleTransition("CLOSED")}>
+                      <button
+                        className={styles.btnSecondary}
+                        onClick={() => handleTransition("CLOSED")}
+                      >
                         Verify & Close
                       </button>
-                      <button className={styles.btnSecondary} onClick={() => handleTransition("OPEN")}>
+                      <button
+                        className={styles.btnSecondary}
+                        onClick={() => handleTransition("OPEN")}
+                      >
                         Reopen Item
                       </button>
                     </>
                   )}
 
                   {selectedItem.status === "CLOSED" && (
-                    <button className={styles.btnSecondary} onClick={() => handleTransition("OPEN")}>
+                    <button
+                      className={styles.btnSecondary}
+                      onClick={() => handleTransition("OPEN")}
+                    >
                       Reopen Item
                     </button>
                   )}
 
-                  <button className={styles.btnSecondary} onClick={() => setShowEditModal(true)}>
+                  <button
+                    className={styles.btnSecondary}
+                    onClick={() => setShowEditModal(true)}
+                  >
                     ✎ Edit Fields (OCC)
                   </button>
                 </div>
 
                 {/* Approve/Reject Reason Input */}
                 {showReasonInput && (
-                  <div style={{ marginTop: "1rem", padding: "0.75rem", background: "#ffffff", borderRadius: "0.375rem" }}>
+                  <div
+                    style={{
+                      marginTop: "1rem",
+                      padding: "0.75rem",
+                      background: "#ffffff",
+                      borderRadius: "0.375rem",
+                    }}
+                  >
                     <div className={styles.formLabel}>
-                      {showReasonInput === "approve" ? "Approval Notes (Optional):" : "Reason for Rejection / Changes:"}
+                      {showReasonInput === "approve"
+                        ? "Approval Notes (Optional):"
+                        : "Reason for Rejection / Changes:"}
                     </div>
                     <input
                       type="text"
@@ -882,12 +1045,22 @@ export default function DashboardPage() {
                     />
                     <div style={{ display: "flex", gap: "0.5rem" }}>
                       <button
-                        className={showReasonInput === "approve" ? styles.btnSuccess : styles.btnDanger}
+                        className={
+                          showReasonInput === "approve"
+                            ? styles.btnSuccess
+                            : styles.btnDanger
+                        }
                         onClick={() => handleApprovalAction(showReasonInput)}
                       >
-                        Confirm {showReasonInput === "approve" ? "Approval" : "Rejection"}
+                        Confirm{" "}
+                        {showReasonInput === "approve"
+                          ? "Approval"
+                          : "Rejection"}
                       </button>
-                      <button className={styles.btnSecondary} onClick={() => setShowReasonInput(null)}>
+                      <button
+                        className={styles.btnSecondary}
+                        onClick={() => setShowReasonInput(null)}
+                      >
                         Cancel
                       </button>
                     </div>
@@ -896,13 +1069,24 @@ export default function DashboardPage() {
               </div>
 
               {/* Ownership & Assignment */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1.5rem" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "1rem",
+                  marginBottom: "1.5rem",
+                }}
+              >
                 <div>
                   <div className={styles.formLabel}>Team Assignment</div>
-                  <div style={{ fontWeight: 600 }}>{selectedItem.team?.name}</div>
+                  <div style={{ fontWeight: 600 }}>
+                    {selectedItem.team?.name}
+                  </div>
                 </div>
                 <div>
-                  <div className={styles.formLabel}>Assignee (Click to Reassign)</div>
+                  <div className={styles.formLabel}>
+                    Assignee (Click to Reassign)
+                  </div>
                   <select
                     className={styles.formSelect}
                     value={selectedItem.assigneeId || ""}
@@ -920,11 +1104,17 @@ export default function DashboardPage() {
 
               {/* Activity Timeline & Comment Box */}
               <div>
-                <h3 className={styles.modalTitle} style={{ fontSize: "1rem", marginBottom: "0.5rem" }}>
+                <h3
+                  className={styles.modalTitle}
+                  style={{ fontSize: "1rem", marginBottom: "0.5rem" }}
+                >
                   Activity & Audit Timeline
                 </h3>
 
-                <form onSubmit={handleAddComment} style={{ marginBottom: "1rem" }}>
+                <form
+                  onSubmit={handleAddComment}
+                  style={{ marginBottom: "1rem" }}
+                >
                   <textarea
                     className={styles.formTextarea}
                     placeholder="Add an internal note or update (Idempotent)..."
@@ -932,8 +1122,21 @@ export default function DashboardPage() {
                     onChange={(e) => setCommentText(e.target.value)}
                     style={{ minHeight: "70px" }}
                   />
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem" }}>
-                    <label style={{ fontSize: "0.8125rem", color: "#64748b", cursor: "pointer" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginTop: "0.5rem",
+                    }}
+                  >
+                    <label
+                      style={{
+                        fontSize: "0.8125rem",
+                        color: "#64748b",
+                        cursor: "pointer",
+                      }}
+                    >
                       <input
                         type="checkbox"
                         checked={isInternalComment}
@@ -956,16 +1159,26 @@ export default function DashboardPage() {
                       </div>
                       <div className={styles.timelineContent}>
                         <div className={styles.timelineHeader}>
-                          <span className={styles.timelineActor}>{act.actor?.name}</span>
+                          <span className={styles.timelineActor}>
+                            {act.actor?.name}
+                          </span>
                           <span className={styles.timelineTime}>
                             {new Date(act.createdAt).toLocaleString()}
                           </span>
                         </div>
-                        <div style={{ fontWeight: 600, color: "#475569", fontSize: "0.75rem" }}>
+                        <div
+                          style={{
+                            fontWeight: 600,
+                            color: "#475569",
+                            fontSize: "0.75rem",
+                          }}
+                        >
                           {act.type.replace("_", " ")}
                         </div>
                         {act.message && (
-                          <div className={styles.timelineMessage}>{act.message}</div>
+                          <div className={styles.timelineMessage}>
+                            {act.message}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -979,11 +1192,20 @@ export default function DashboardPage() {
 
       {/* Create Work Item Modal */}
       {showCreateModal && (
-        <div className={styles.modalOverlay} onClick={() => setShowCreateModal(false)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+        <div
+          className={styles.modalOverlay}
+          onClick={() => setShowCreateModal(false)}
+        >
+          <div
+            className={styles.modalContent}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className={styles.modalHeader}>
               <h2 className={styles.modalTitle}>Create New Work Item</h2>
-              <button className={styles.btnSecondary} onClick={() => setShowCreateModal(false)}>
+              <button
+                className={styles.btnSecondary}
+                onClick={() => setShowCreateModal(false)}
+              >
                 ✕
               </button>
             </div>
@@ -997,7 +1219,9 @@ export default function DashboardPage() {
                     className={styles.formInput}
                     placeholder="Short summary of request..."
                     value={createForm.title}
-                    onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })}
+                    onChange={(e) =>
+                      setCreateForm({ ...createForm, title: e.target.value })
+                    }
                   />
                 </div>
 
@@ -1008,17 +1232,33 @@ export default function DashboardPage() {
                     className={styles.formTextarea}
                     placeholder="Detailed steps, context, or reproduction notes..."
                     value={createForm.description}
-                    onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
+                    onChange={(e) =>
+                      setCreateForm({
+                        ...createForm,
+                        description: e.target.value,
+                      })
+                    }
                   />
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: "1rem",
+                  }}
+                >
                   <div className={styles.formGroup}>
                     <label className={styles.formLabel}>Category</label>
                     <select
                       className={styles.formSelect}
                       value={createForm.category}
-                      onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })}
+                      onChange={(e) =>
+                        setCreateForm({
+                          ...createForm,
+                          category: e.target.value,
+                        })
+                      }
                     >
                       <option value="CUSTOMER_ISSUE">Customer Issue</option>
                       <option value="ENGINEERING">Engineering Bug</option>
@@ -1035,7 +1275,12 @@ export default function DashboardPage() {
                     <select
                       className={styles.formSelect}
                       value={createForm.priority}
-                      onChange={(e) => setCreateForm({ ...createForm, priority: e.target.value })}
+                      onChange={(e) =>
+                        setCreateForm({
+                          ...createForm,
+                          priority: e.target.value,
+                        })
+                      }
                     >
                       <option value="LOW">Low</option>
                       <option value="MEDIUM">Medium</option>
@@ -1051,7 +1296,9 @@ export default function DashboardPage() {
                     required
                     className={styles.formSelect}
                     value={createForm.teamId}
-                    onChange={(e) => setCreateForm({ ...createForm, teamId: e.target.value })}
+                    onChange={(e) =>
+                      setCreateForm({ ...createForm, teamId: e.target.value })
+                    }
                   >
                     {teams.map((t) => (
                       <option key={t.id} value={t.id}>
@@ -1081,13 +1328,22 @@ export default function DashboardPage() {
 
       {/* Edit Fields Modal (Optimistic Concurrency Control) */}
       {showEditModal && selectedItem && (
-        <div className={styles.modalOverlay} onClick={() => setShowEditModal(false)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+        <div
+          className={styles.modalOverlay}
+          onClick={() => setShowEditModal(false)}
+        >
+          <div
+            className={styles.modalContent}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className={styles.modalHeader}>
               <h2 className={styles.modalTitle}>
                 Edit Work Item (Targeting Version {selectedItem.version})
               </h2>
-              <button className={styles.btnSecondary} onClick={() => setShowEditModal(false)}>
+              <button
+                className={styles.btnSecondary}
+                onClick={() => setShowEditModal(false)}
+              >
                 ✕
               </button>
             </div>
@@ -1098,7 +1354,9 @@ export default function DashboardPage() {
                   type="text"
                   className={styles.formInput}
                   value={editForm.title}
-                  onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, title: e.target.value })
+                  }
                 />
               </div>
 
@@ -1107,7 +1365,12 @@ export default function DashboardPage() {
                 <select
                   className={styles.formSelect}
                   value={editForm.priority}
-                  onChange={(e) => setEditForm({ ...editForm, priority: e.target.value as WorkItem["priority"] })}
+                  onChange={(e) =>
+                    setEditForm({
+                      ...editForm,
+                      priority: e.target.value as WorkItem["priority"],
+                    })
+                  }
                 >
                   <option value="LOW">Low</option>
                   <option value="MEDIUM">Medium</option>
@@ -1121,16 +1384,24 @@ export default function DashboardPage() {
                 <textarea
                   className={styles.formTextarea}
                   value={editForm.description}
-                  onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, description: e.target.value })
+                  }
                 />
               </div>
             </div>
 
             <div className={styles.modalFooter}>
-              <button className={styles.btnSecondary} onClick={() => setShowEditModal(false)}>
+              <button
+                className={styles.btnSecondary}
+                onClick={() => setShowEditModal(false)}
+              >
                 Cancel
               </button>
-              <button className={styles.btnPrimary} onClick={() => handleEditSubmit()}>
+              <button
+                className={styles.btnPrimary}
+                onClick={() => handleEditSubmit()}
+              >
                 Save Changes (OCC Guarded)
               </button>
             </div>
@@ -1149,41 +1420,67 @@ export default function DashboardPage() {
             </div>
             <div className={styles.modalBody}>
               <div className={styles.conflictBanner}>
-                Another user modified this work item while you were editing! The server state has advanced to <strong>Version {conflictData.current.version}</strong>.
+                Another user modified this work item while you were editing! The
+                server state has advanced to{" "}
+                <strong>Version {conflictData.current.version}</strong>.
               </div>
 
               <div className={styles.diffContainer}>
                 {/* Your attempted changes */}
                 <div className={styles.diffColumn}>
-                  <div className={styles.diffColumnTitle}>Your Local Changes</div>
+                  <div className={styles.diffColumnTitle}>
+                    Your Local Changes
+                  </div>
                   <div className={styles.diffField}>
                     <div className={styles.diffFieldLabel}>Title:</div>
-                    <div className={styles.diffFieldValue}>{conflictData.attempted.title}</div>
+                    <div className={styles.diffFieldValue}>
+                      {conflictData.attempted.title}
+                    </div>
                   </div>
                   <div className={styles.diffField}>
                     <div className={styles.diffFieldLabel}>Priority:</div>
-                    <div className={styles.diffFieldValue}>{conflictData.attempted.priority}</div>
+                    <div className={styles.diffFieldValue}>
+                      {conflictData.attempted.priority}
+                    </div>
                   </div>
                   <div className={styles.diffField}>
                     <div className={styles.diffFieldLabel}>Target Version:</div>
-                    <div className={styles.diffFieldValue}>v{selectedItem?.version}</div>
+                    <div className={styles.diffFieldValue}>
+                      v{selectedItem?.version}
+                    </div>
                   </div>
                 </div>
 
                 {/* Current Server State */}
-                <div className={styles.diffColumn} style={{ borderColor: "#10b981", background: "#f0fdf4" }}>
-                  <div className={styles.diffColumnTitle} style={{ color: "#065f46" }}>Current Server State (Latest)</div>
+                <div
+                  className={styles.diffColumn}
+                  style={{ borderColor: "#10b981", background: "#f0fdf4" }}
+                >
+                  <div
+                    className={styles.diffColumnTitle}
+                    style={{ color: "#065f46" }}
+                  >
+                    Current Server State (Latest)
+                  </div>
                   <div className={styles.diffField}>
                     <div className={styles.diffFieldLabel}>Title:</div>
-                    <div className={styles.diffFieldValue}>{conflictData.current.title}</div>
+                    <div className={styles.diffFieldValue}>
+                      {conflictData.current.title}
+                    </div>
                   </div>
                   <div className={styles.diffField}>
                     <div className={styles.diffFieldLabel}>Priority:</div>
-                    <div className={styles.diffFieldValue}>{conflictData.current.priority}</div>
+                    <div className={styles.diffFieldValue}>
+                      {conflictData.current.priority}
+                    </div>
                   </div>
                   <div className={styles.diffField}>
-                    <div className={styles.diffFieldLabel}>Current Version:</div>
-                    <div className={styles.diffFieldValue}>v{conflictData.current.version}</div>
+                    <div className={styles.diffFieldLabel}>
+                      Current Version:
+                    </div>
+                    <div className={styles.diffFieldValue}>
+                      v{conflictData.current.version}
+                    </div>
                   </div>
                 </div>
               </div>
