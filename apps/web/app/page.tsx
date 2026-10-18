@@ -805,7 +805,7 @@ export default function DashboardPage() {
                     style={{
                       textAlign: "center",
                       padding: "2rem",
-                      color: "#64748b",
+                      color: "#aaa3bb",
                     }}
                   >
                     No work items found matching the selected filters.
@@ -901,10 +901,10 @@ export default function DashboardPage() {
                 <div className={styles.formLabel}>Description</div>
                 <div
                   style={{
-                    background: "#f8fafc",
+                    background: "#211b35",
                     padding: "1rem",
                     borderRadius: "0.375rem",
-                    border: "1px solid #e2e8f0",
+                    border: "1px solid #39304c",
                   }}
                 >
                   {selectedItem.description}
@@ -914,7 +914,7 @@ export default function DashboardPage() {
               {/* Action Toolbar */}
               <div
                 style={{
-                  background: "#f1f5f9",
+                  background: "#211b35",
                   padding: "1rem",
                   borderRadius: "0.5rem",
                   marginBottom: "1.5rem",
@@ -1026,7 +1026,7 @@ export default function DashboardPage() {
                     style={{
                       marginTop: "1rem",
                       padding: "0.75rem",
-                      background: "#ffffff",
+                      background: "#100d1d",
                       borderRadius: "0.375rem",
                     }}
                   >
@@ -1133,7 +1133,7 @@ export default function DashboardPage() {
                     <label
                       style={{
                         fontSize: "0.8125rem",
-                        color: "#64748b",
+                        color: "#aaa3bb",
                         cursor: "pointer",
                       }}
                     >
@@ -1169,7 +1169,7 @@ export default function DashboardPage() {
                         <div
                           style={{
                             fontWeight: 600,
-                            color: "#475569",
+                            color: "#aaa3bb",
                             fontSize: "0.75rem",
                           }}
                         >
@@ -1414,7 +1414,7 @@ export default function DashboardPage() {
         <div className={styles.modalOverlay}>
           <div className={styles.modalContent} style={{ maxWidth: "700px" }}>
             <div className={styles.modalHeader}>
-              <h2 className={styles.modalTitle} style={{ color: "#b91c1c" }}>
+              <h2 className={styles.modalTitle} style={{ color: "#f9a8d4" }}>
                 ⚠️ 409 Conflict Detected
               </h2>
             </div>
@@ -1454,11 +1454,14 @@ export default function DashboardPage() {
                 {/* Current Server State */}
                 <div
                   className={styles.diffColumn}
-                  style={{ borderColor: "#10b981", background: "#f0fdf4" }}
+                  style={{
+                    borderColor: "rgba(132, 204, 22, 0.45)",
+                    background: "rgba(132, 204, 22, 0.1)",
+                  }}
                 >
                   <div
                     className={styles.diffColumnTitle}
-                    style={{ color: "#065f46" }}
+                    style={{ color: "#d9f99d" }}
                   >
                     Current Server State (Latest)
                   </div>
