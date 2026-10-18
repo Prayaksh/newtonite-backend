@@ -11,6 +11,12 @@ const querySchema = z.object({
   unread_only: z.coerce.boolean().optional(),
 });
 
+const markReadSchema = z
+  .object({
+    activityIds: z.array(z.string().min(1)).min(1).max(100),
+  })
+  .strict();
+
 // GET /api/v1/notifications - Get notifications for updates and actions on user's work items
 router.get("/", (async (req: AuthRequest, res, next) => {
   try {
@@ -20,7 +26,9 @@ router.get("/", (async (req: AuthRequest, res, next) => {
       return res.status(401).json({ error: "Authentication required" });
     }
 
-    const { page, limit } = querySchema.parse(req.query);
+    const { page, limit, unread_only: unreadOnly = false } = querySchema.parse(
+      req.query,
+    );
 
     // Get user's teams
     const memberships = await db.teamMembership.findMany({
@@ -34,12 +42,14 @@ router.get("/", (async (req: AuthRequest, res, next) => {
       return res.json({ notifications: [], total: 0, page, limit });
     }
 
-    // Notifications are derived from activities on items assigned to the user or in user's teams
     const where = {
       workItem: {
         teamId: { in: teamIds },
       },
-      actorId: { not: userId }, // Don't notify of user's own actions
+      actorId: { not: userId },
+      ...(unreadOnly
+        ? { notificationReads: { none: { userId } } }
+        : {}),
     };
 
     const [activities, total] = await db.$transaction([
@@ -51,6 +61,10 @@ router.get("/", (async (req: AuthRequest, res, next) => {
         include: {
           actor: { select: { id: true, name: true } },
           workItem: { select: { id: true, title: true, status: true, priority: true } },
+          notificationReads: {
+            where: { userId },
+            select: { readAt: true },
+          },
         },
       }),
       db.activity.count({ where }),
@@ -64,6 +78,8 @@ router.get("/", (async (req: AuthRequest, res, next) => {
       actor: a.actor,
       workItem: a.workItem,
       createdAt: a.createdAt,
+      isRead: a.notificationReads.length > 0,
+      readAt: a.notificationReads[0]?.readAt ?? null,
     }));
 
     return res.json({
@@ -77,5 +93,40 @@ router.get("/", (async (req: AuthRequest, res, next) => {
   }
 }) as RequestHandler);
 
-export default router;
+router.post("/read", (async (req: AuthRequest, res, next) => {
+  try {
+    const userId = req.userId;
+    if (!userId) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
 
+    const { activityIds } = markReadSchema.parse(req.body);
+    const memberships = await db.teamMembership.findMany({
+      where: { userId },
+      select: { teamId: true },
+    });
+    const teamIds = memberships.map(({ teamId }) => teamId);
+    if (teamIds.length === 0) {
+      return res.json({ markedRead: 0 });
+    }
+
+    const accessibleActivities = await db.activity.findMany({
+      where: {
+        id: { in: activityIds },
+        actorId: { not: userId },
+        workItem: { teamId: { in: teamIds } },
+      },
+      select: { id: true },
+    });
+
+    const result = await db.notificationRead.createMany({
+      data: accessibleActivities.map(({ id }) => ({ userId, activityId: id })),
+      skipDuplicates: true,
+    });
+    return res.json({ markedRead: result.count });
+  } catch (error) {
+    next(error);
+  }
+}) as RequestHandler);
+
+export default router;

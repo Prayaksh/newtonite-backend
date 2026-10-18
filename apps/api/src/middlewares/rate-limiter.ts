@@ -1,4 +1,25 @@
 import rateLimit from "express-rate-limit";
+import { RedisStore, type RedisReply } from "rate-limit-redis";
+import { Redis } from "ioredis";
+
+import { env } from "../config/env.js";
+
+const rateLimitRedis = new Redis(env.redisUrl, {
+  lazyConnect: true,
+  connectionName: "newtonite-rate-limits",
+});
+
+rateLimitRedis.on("error", (error) => {
+  console.error("[Redis] Rate-limit store error:", error);
+});
+
+export async function connectRateLimitStore(): Promise<void> {
+  await rateLimitRedis.ping();
+}
+
+export async function closeRateLimitStore(): Promise<void> {
+  await rateLimitRedis.quit();
+}
 
 // General API Rate Limiter: Allows 100 requests per 15 minutes per IP
 export const apiLimiter = rateLimit({
@@ -32,6 +53,42 @@ export const strictLimiter = rateLimit({
   message: {
     status: "error",
     error: "Too many attempts. Please wait before trying again.",
+  },
+});
+
+export const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  store: new RedisStore({
+    prefix: "rate-limit:login:",
+    sendCommand: async (...args): Promise<RedisReply> => {
+      const reply: unknown = await rateLimitRedis.call(
+        args[0]!,
+        ...args.slice(1),
+      );
+      if (typeof reply === "boolean" || typeof reply === "number" || typeof reply === "string") {
+        return reply;
+      }
+      if (
+        Array.isArray(reply) &&
+        reply.every(
+          (value) =>
+            typeof value === "boolean" ||
+            typeof value === "number" ||
+            typeof value === "string",
+        )
+      ) {
+        return reply;
+      }
+      throw new Error("Redis rate-limit command returned an invalid response");
+    },
+  }),
+  message: {
+    success: false,
+    message: "Too many login attempts. Please wait before trying again.",
   },
 });
 

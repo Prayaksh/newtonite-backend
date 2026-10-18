@@ -14,7 +14,7 @@ import {
 } from "../lib/schema.js";
 
 import { withIdempotency } from "../lib/idempotency.js";
-import { eventBus } from "../lib/events.js";
+import { eventBus, type WorkItemEvent } from "../lib/events.js";
 import {
   strictLimiter,
   sseLimiter,
@@ -222,31 +222,45 @@ router.post("/", strictLimiter, validate(createWorkItemSchema), (async (
 }) as RequestHandler);
 
 // Real-Time Server-Sent Events (SSE) stream for work-item updates
-router.get("/events", sseLimiter, (req: AuthRequest, res) => {
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  res.flushHeaders?.();
+router.get("/events", sseLimiter, async (req: AuthRequest, res, next) => {
+  try {
+    if (!req.userId) {
+      return fail(res, 401, "Authentication required");
+    }
 
-  // Send initial connected event
-  res.write(
-    `data: ${JSON.stringify({ type: "CONNECTED", timestamp: new Date().toISOString() })}\n\n`,
-  );
+    const memberships = await db.teamMembership.findMany({
+      where: { userId: req.userId },
+      select: { teamId: true },
+    });
+    const teamIds = new Set(memberships.map(({ teamId }) => teamId));
 
-  const onEvent = (event: any) => {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
-  };
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+    res.write(
+      `data: ${JSON.stringify({ type: "CONNECTED", timestamp: new Date().toISOString() })}\n\n`,
+    );
 
-  eventBus.on("work-item-event", onEvent);
+    const onEvent = (event: WorkItemEvent) => {
+      if (teamIds.has(event.teamId)) {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      }
+    };
 
-  const heartbeat = setInterval(() => {
-    res.write(": heartbeat\n\n");
-  }, 25_000);
+    eventBus.on("work-item-event", onEvent);
 
-  req.on("close", () => {
-    clearInterval(heartbeat);
-    eventBus.off("work-item-event", onEvent);
-  });
+    const heartbeat = setInterval(() => {
+      res.write(": heartbeat\n\n");
+    }, 25_000);
+
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      eventBus.off("work-item-event", onEvent);
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // 3. Get single work item (returns ETag / version)
@@ -394,6 +408,7 @@ router.patch("/:id", strictLimiter, validate(updateWorkItemSchema), (async (
 
     eventBus.broadcast({
       type: "WORK_ITEM_UPDATED",
+      teamId: item.teamId,
       workItemId: id,
       data: item,
     });
@@ -514,6 +529,7 @@ router.post("/:id/assign", strictLimiter, validate(assignSchema), (async (
 
     eventBus.broadcast({
       type: "WORK_ITEM_ASSIGNED",
+      teamId: item.teamId,
       workItemId: id,
       data: item,
     });
@@ -634,6 +650,7 @@ router.post(
 
       eventBus.broadcast({
         type: "WORK_ITEM_STATUS_CHANGED",
+        teamId: item.teamId,
         workItemId: id,
         data: item,
       });
@@ -751,6 +768,7 @@ router.post(
 
       eventBus.broadcast({
         type: "WORK_ITEM_APPROVED",
+        teamId: item.teamId,
         workItemId: id,
         data: item,
       });
@@ -865,6 +883,7 @@ router.post(
 
       eventBus.broadcast({
         type: "WORK_ITEM_REJECTED",
+        teamId: item.teamId,
         workItemId: id,
         data: item,
       });

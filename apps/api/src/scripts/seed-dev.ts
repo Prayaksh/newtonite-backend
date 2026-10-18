@@ -1,13 +1,21 @@
 import { db } from "@repo/db";
+import bcrypt from "bcryptjs";
 
 async function main() {
+  const password = process.env.DEV_USER_PASSWORD;
+  if (!password) {
+    throw new Error("Set DEV_USER_PASSWORD before seeding the development user");
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
   const user = await db.user.upsert({
     where: { email: "dev@example.com" },
-    update: { isActive: true },
+    update: { isActive: true, passwordHash },
     create: {
       email: "dev@example.com",
       name: "Development User",
       isActive: true,
+      passwordHash,
     },
   });
 

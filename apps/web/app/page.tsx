@@ -5,6 +5,19 @@ import styles from "./dashboard.module.css";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
 
+async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  if (init.body && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  return fetch(input, {
+    ...init,
+    headers,
+    credentials: "include",
+  });
+}
+
 type WorkItem = {
   id: string;
   title: string;
@@ -30,7 +43,7 @@ type UserProfile = {
   email: string;
   memberships: {
     teamId: string;
-    teamName: string;
+    team: { id: string; name: string };
     role: "ADMIN" | "TEAM_LEAD" | "MEMBER" | "VIEWER";
   }[];
 };
@@ -61,10 +74,14 @@ type DashboardStats = {
 };
 
 export default function DashboardPage() {
-  const [userId, setUserId] = useState<string>("cmvbva00d0000d9tktpexpo4x");
   const [user, setUser] = useState<UserProfile | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [authError, setAuthError] = useState<string>("");
+  const [email, setEmail] = useState<string>("");
+  const [password, setPassword] = useState<string>("");
+  const [loginLoading, setLoginLoading] = useState<boolean>(false);
 
   // Filters
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
@@ -109,48 +126,52 @@ export default function DashboardPage() {
   const [reasonText, setReasonText] = useState("");
   const [showReasonInput, setShowReasonInput] = useState<"approve" | "reject" | null>(null);
 
-  const getHeaders = useCallback(() => {
-    return {
-      "Content-Type": "application/json",
-      "X-User-Id": userId,
-    };
-  }, [userId]);
+  const getHeaders = useCallback(() => ({ "Content-Type": "application/json" }), []);
 
   // Load User, Teams, and Stats
   const loadInitialData = useCallback(async () => {
     try {
       const headers = getHeaders();
 
-      // Fetch user profile
-      const userRes = await fetch(`${API_BASE}/api/v1/users/me`, { headers });
-      if (userRes.ok) {
-        const u = await userRes.json();
-        setUser(u.user);
+      const sessionRes = await apiFetch(`${API_BASE}/api/v1/auth/me`, { headers });
+      if (sessionRes.status === 401) {
+        setUser(null);
+        return;
       }
+      if (!sessionRes.ok) throw new Error("Failed to verify session");
+
+      const session = await sessionRes.json();
+      setUser(session.user);
 
       // Fetch teams
-      const teamsRes = await fetch(`${API_BASE}/api/v1/teams`, { headers });
+      const teamsRes = await apiFetch(`${API_BASE}/api/v1/teams`, { headers });
       if (teamsRes.ok) {
         const t = await teamsRes.json();
         setTeams(t.teams);
-        if (t.teams.length > 0 && !createForm.teamId) {
-          setCreateForm((prev) => ({ ...prev, teamId: t.teams[0].id }));
+        if (t.teams.length > 0) {
+          setCreateForm((prev) =>
+            prev.teamId ? prev : { ...prev, teamId: t.teams[0].id },
+          );
         }
       }
 
       // Fetch dashboard stats
-      const statsRes = await fetch(`${API_BASE}/api/v1/dashboard/stats`, { headers });
+      const statsRes = await apiFetch(`${API_BASE}/api/v1/dashboard/stats`, { headers });
       if (statsRes.ok) {
         const s = await statsRes.json();
         setStats(s);
       }
     } catch (err) {
       console.error("Failed to load initial data:", err);
+      setAuthError("Unable to connect to the server. Please try again.");
+    } finally {
+      setAuthLoading(false);
     }
-  }, [getHeaders, createForm.teamId]);
+  }, [getHeaders]);
 
   // Load Work Items with Filters
   const loadWorkItems = useCallback(async () => {
+    if (!user) return;
     setLoading(true);
     try {
       const url = new URL(`${API_BASE}/api/v1/work-items`);
@@ -159,7 +180,7 @@ export default function DashboardPage() {
       if (selectedPriority) url.searchParams.set("priority", selectedPriority);
       if (searchQuery) url.searchParams.set("q", searchQuery);
 
-      const res = await fetch(url.toString(), { headers: getHeaders() });
+      const res = await apiFetch(url.toString(), { headers: getHeaders() });
       if (res.ok) {
         const data = await res.json();
         setWorkItems(data.items);
@@ -169,7 +190,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [getHeaders, selectedTeam, selectedStatus, selectedPriority, searchQuery]);
+  }, [getHeaders, selectedTeam, selectedStatus, selectedPriority, searchQuery, user]);
 
   // Load Timeline & Members for selected item
   const loadItemDetails = useCallback(async (item: WorkItem) => {
@@ -184,14 +205,14 @@ export default function DashboardPage() {
     try {
       const headers = getHeaders();
       // Load timeline
-      const timelineRes = await fetch(`${API_BASE}/api/v1/work-items/${item.id}/timeline`, { headers });
+      const timelineRes = await apiFetch(`${API_BASE}/api/v1/work-items/${item.id}/timeline`, { headers });
       if (timelineRes.ok) {
         const data = await timelineRes.json();
         setTimeline(data.activities);
       }
 
       // Load team members
-      const membersRes = await fetch(`${API_BASE}/api/v1/teams/${item.teamId}/members`, { headers });
+      const membersRes = await apiFetch(`${API_BASE}/api/v1/teams/${item.teamId}/members`, { headers });
       if (membersRes.ok) {
         const data = await membersRes.json();
         setTeamMembers(data.members);
@@ -209,9 +230,63 @@ export default function DashboardPage() {
     loadWorkItems();
   }, [loadWorkItems]);
 
+  const handleLogin = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setLoginLoading(true);
+    setAuthError("");
+
+    try {
+      const response = await apiFetch(`${API_BASE}/api/v1/auth/login`, {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setAuthError(data.message || "Unable to sign in");
+        return;
+      }
+
+      setPassword("");
+      await loadInitialData();
+    } catch (error) {
+      console.error("Login failed:", error);
+      setAuthError("Unable to connect to the server. Please try again.");
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      const response = await apiFetch(`${API_BASE}/api/v1/auth/logout`, {
+        method: "POST",
+      });
+      if (!response.ok) throw new Error("Logout failed");
+      setUser(null);
+      setTeams([]);
+      setStats(null);
+      setWorkItems([]);
+    } catch (error) {
+      console.error("Logout failed:", error);
+      setAuthError("Unable to sign out. Please try again.");
+    }
+  };
+
   // Connect Server-Sent Events (SSE) for Real-Time Updates
   useEffect(() => {
-    const sse = new EventSource(`${API_BASE}/api/v1/work-items/events`);
+    if (!user) return;
+    const sse = new EventSource(`${API_BASE}/api/v1/work-items/events`, {
+      withCredentials: true,
+    });
+    let connectedBefore = false;
+
+    sse.onopen = () => {
+      if (connectedBefore) {
+        loadWorkItems();
+        loadInitialData();
+      }
+      connectedBefore = true;
+    };
 
     sse.onmessage = (event) => {
       try {
@@ -229,14 +304,14 @@ export default function DashboardPage() {
     return () => {
       sse.close();
     };
-  }, [loadWorkItems, loadInitialData]);
+  }, [loadWorkItems, loadInitialData, user]);
 
   // Handle Create Work Item (with Idempotency-Key)
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const idempotencyKey = crypto.randomUUID();
-      const res = await fetch(`${API_BASE}/api/v1/work-items`, {
+      const res = await apiFetch(`${API_BASE}/api/v1/work-items`, {
         method: "POST",
         headers: {
           ...getHeaders(),
@@ -275,7 +350,7 @@ export default function DashboardPage() {
     const targetVersion = overrideVersion ?? selectedItem.version;
 
     try {
-      const res = await fetch(`${API_BASE}/api/v1/work-items/${selectedItem.id}`, {
+      const res = await apiFetch(`${API_BASE}/api/v1/work-items/${selectedItem.id}`, {
         method: "PATCH",
         headers: {
           ...getHeaders(),
@@ -312,7 +387,7 @@ export default function DashboardPage() {
     if (!selectedItem) return;
 
     try {
-      const res = await fetch(`${API_BASE}/api/v1/work-items/${selectedItem.id}/transition`, {
+      const res = await apiFetch(`${API_BASE}/api/v1/work-items/${selectedItem.id}/transition`, {
         method: "POST",
         headers: getHeaders(),
         body: JSON.stringify({
@@ -343,7 +418,7 @@ export default function DashboardPage() {
     if (!selectedItem) return;
 
     try {
-      const res = await fetch(`${API_BASE}/api/v1/work-items/${selectedItem.id}/${action}`, {
+      const res = await apiFetch(`${API_BASE}/api/v1/work-items/${selectedItem.id}/${action}`, {
         method: "POST",
         headers: getHeaders(),
         body: JSON.stringify({
@@ -376,7 +451,7 @@ export default function DashboardPage() {
     if (!selectedItem) return;
 
     try {
-      const res = await fetch(`${API_BASE}/api/v1/work-items/${selectedItem.id}/assign`, {
+      const res = await apiFetch(`${API_BASE}/api/v1/work-items/${selectedItem.id}/assign`, {
         method: "POST",
         headers: getHeaders(),
         body: JSON.stringify({
@@ -405,7 +480,7 @@ export default function DashboardPage() {
     if (!selectedItem || !commentText.trim()) return;
 
     try {
-      const res = await fetch(`${API_BASE}/api/v1/work-items/${selectedItem.id}/comments`, {
+      const res = await apiFetch(`${API_BASE}/api/v1/work-items/${selectedItem.id}/comments`, {
         method: "POST",
         headers: {
           ...getHeaders(),
@@ -448,6 +523,52 @@ export default function DashboardPage() {
     }
   };
 
+  if (authLoading) {
+    return <main className={styles.authLoading}>Checking your session...</main>;
+  }
+
+  if (!user) {
+    return (
+      <main className={styles.authScreen}>
+        <form className={styles.authCard} onSubmit={handleLogin}>
+          <div className={styles.brand}>
+            <div className={styles.brandIcon}>OM</div>
+            <div>
+              <div className={styles.brandTitle}>Operational Work System</div>
+              <div className={styles.brandSubtitle}>Sign in to your account</div>
+            </div>
+          </div>
+          {authError && <p className={styles.authError} role="alert">{authError}</p>}
+          <label className={styles.formGroup}>
+            <span className={styles.formLabel}>Email</span>
+            <input
+              className={styles.formInput}
+              type="email"
+              autoComplete="username"
+              required
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </label>
+          <label className={styles.formGroup}>
+            <span className={styles.formLabel}>Password</span>
+            <input
+              className={styles.formInput}
+              type="password"
+              autoComplete="current-password"
+              required
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </label>
+          <button className={styles.btnPrimary} type="submit" disabled={loginLoading}>
+            {loginLoading ? "Signing in..." : "Sign in"}
+          </button>
+        </form>
+      </main>
+    );
+  }
+
   return (
     <div className={styles.container}>
       {/* Top Header */}
@@ -467,11 +588,14 @@ export default function DashboardPage() {
           </div>
 
           <div className={styles.userCard}>
-            <span>User: <strong>{user?.name || "Demo User"}</strong></span>
-            {user?.memberships?.[0] && (
+            <span>{user.name}</span>
+            {user.memberships[0] && (
               <span className={styles.userRole}>{user.memberships[0].role}</span>
             )}
           </div>
+          <button className={styles.btnSecondary} type="button" onClick={handleLogout}>
+            Sign out
+          </button>
         </div>
       </header>
 

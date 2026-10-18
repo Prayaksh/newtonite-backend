@@ -69,6 +69,7 @@ model User {
   assignedItems   WorkItem[] @relation("WorkItemAssignee")
   activities      Activity[]
   idempotencyKeys IdempotencyKey[]
+  notificationReads NotificationRead[]
 
   sessions        AuthSession[]
   invitationsSent Invitation[] @relation("InvitationSender")
@@ -161,7 +162,6 @@ model WorkItem {
 
   activities Activity[]
   outboxEvents OutboxEvent[]
-
   @@index([teamId, status, priority, updatedAt])
   @@index([assigneeId, status, updatedAt])
   @@index([reporterId, createdAt])
@@ -181,9 +181,22 @@ model Activity {
 
   workItem WorkItem @relation(fields: [workItemId], references: [id], onDelete: Restrict)
   actor    User     @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  notificationReads NotificationRead[]
 
   @@index([workItemId, createdAt, id])
   @@index([actorId, createdAt])
+}
+
+model NotificationRead {
+  userId     String
+  activityId String
+  readAt     DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@id([userId, activityId])
+  @@index([activityId])
 }
 
 model IdempotencyKey {

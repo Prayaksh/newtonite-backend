@@ -8,7 +8,7 @@ An enterprise-grade Operational Work Management System built as a TypeScript mon
 
 ```
 ├── apps/
-│   ├── api/                 # Node.js Express REST API (OCC, RBAC, Idempotency, Outbox)
+│   ├── api/                 # Node.js Express REST API (OCC, RBAC, Idempotency, Redis)
 │   └── web/                 # Next.js / React operational dashboard
 ├── packages/
 │   ├── db/                  # Prisma client, schema, migrations, connection pool
@@ -44,7 +44,12 @@ An enterprise-grade Operational Work Management System built as a TypeScript mon
 - **Problem:** Dual writes (committing to DB and calling external services like Slack/Email/Webhooks) fail when one succeeds and the other fails.
 - **Implementation:**
   - Events are written to `OutboxEvent` within the **same database transaction** as the work item update.
-  - An asynchronous `OutboxWorker` claims `PENDING` events using row locking, dispatches them with exponential backoff retry logic ($2^{\text{attempts}} \times 1\text{s}$), and flags terminal failures as `FAILED` after 5 attempts.
+  - The API poller claims `PENDING` rows and enqueues them into BullMQ using the outbox ID as a deduplication key. PostgreSQL remains the durable source of truth.
+  - BullMQ retries failed jobs up to five times with exponential backoff. Completed queue jobs are retained temporarily; failed jobs remain available for inspection.
+
+### 4. Distributed Real-Time Updates
+- API instances publish work-item events through Redis Pub/Sub, and each instance forwards received events to its connected authenticated SSE clients.
+- Redis is required when starting the API. Set `REDIS_URL` to the reachable Redis instance (the local default is `redis://localhost:6379`).
 
 ---
 
@@ -52,7 +57,7 @@ An enterprise-grade Operational Work Management System built as a TypeScript mon
 
 All endpoints are mounted on both `/api/v1/...` (spec standard) and `/api/...` (backwards compatibility).
 
-Authentication in development is handled via the `X-User-Id: <user-id>` header.
+Protected API routes use database-backed sessions. Sign in through `/api/v1/auth/login`; the API sets an HTTP-only `sid` cookie that must be sent on subsequent requests. The dashboard includes credentials automatically.
 
 ### Work Items (`/api/v1/work-items`)
 
@@ -73,9 +78,14 @@ Authentication in development is handled via the `X-User-Id: <user-id>` header.
 
 | Method | Endpoint | Description | Key Headers / Body |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/users/me` | Current user profile, roles, team scopes | Header: `X-User-Id` |
-| `GET` | `/api/v1/teams` | List operational teams user belongs to | Header: `X-User-Id` |
-| `GET` | `/api/v1/teams/:id/members` | List members and roles for a team | Header: `X-User-Id` |
+| `POST` | `/api/v1/auth/login` | Create a session | Body: `email`, `password`; sets `sid` cookie |
+| `GET` | `/api/v1/auth/me` | Verify the current session | Cookie: `sid` |
+| `POST` | `/api/v1/auth/logout` | End the current session | Cookie: `sid` |
+| `GET` | `/api/v1/users/me` | Current user profile, roles, team scopes | Cookie: `sid` |
+| `GET` | `/api/v1/teams` | List operational teams user belongs to | Cookie: `sid` |
+| `GET` | `/api/v1/teams/:id/members` | List members and roles for a team | Cookie: `sid` |
+| `GET` | `/api/v1/notifications` | List team activity notifications; supports `unread_only=true` | Cookie: `sid` |
+| `POST` | `/api/v1/notifications/read` | Mark up to 100 notification activity IDs as read | Cookie: `sid`; Body: `activityIds` |
 
 ---
 
@@ -104,6 +114,7 @@ stateDiagram-v2
 ### Prerequisites
 - Node.js >= 24
 - PostgreSQL running locally or in Docker
+- Redis running locally or in Docker
 - pnpm
 
 ### Environment Configuration
@@ -111,19 +122,29 @@ Configure `apps/api/.env`:
 ```env
 NODE_ENV="development"
 PORT=3000
+REDIS_URL="redis://localhost:6379"
 DATABASE_URL="postgresql://user:password@localhost:5432/dashboard"
 TEST_USER_ID="cmvbva00d0000d9tktpexpo4x"
 TEST_TEAM_ID="cmvbva03c0001d9tkuixolcur"
+DEV_USER_PASSWORD="choose-a-local-development-password"
 ```
 
 ### Database Setup & Seeding
 ```sh
+# Start local backing services, including Redis
+docker compose up -d postgres redis
+
 # Generate Prisma Client & apply schema
 pnpm --filter @repo/db db:push
 
-# Seed development user and team
-npx tsx apps/api/src/scripts/seed-dev.ts
+# Seed the development user and team (also sets the login password)
+pnpm --filter @repo/api exec node --env-file=.env --import tsx src/scripts/seed-dev.ts
 ```
+
+The compose file reads `DB_USER` and `DB_PASSWORD` from the repository-root `.env`; configure those values before starting PostgreSQL. Keep credentials out of source control.
+
+The seed script requires `DEV_USER_PASSWORD`. Integration tests log in as `dev@example.com` using that password and send the returned session cookie; set `TEST_USER_EMAIL` and/or `TEST_USER_PASSWORD` to test a different account.
+The notification read-receipt integration test also runs when `TEST_NOTIFICATION_ACTOR_EMAIL` and `TEST_NOTIFICATION_ACTOR_PASSWORD` are set to a second user who belongs to `TEST_TEAM_ID`.
 
 ### Running the API
 ```sh
@@ -139,23 +160,30 @@ pnpm --filter @repo/api build
 # Run idempotency and OCC concurrency test suites
 node --env-file=apps/api/.env --test apps/api/src/tests/idempotency.test.mjs
 node --env-file=apps/api/.env --test apps/api/src/tests/occ-concurrency.test.mjs
+node --env-file=apps/api/.env --test apps/api/src/tests/smoke.test.mjs
 ```
 
 ---
 
 ## Example Usage
 
-### 1. List Work Items
+### 1. Sign In
 ```sh
-curl http://localhost:3000/api/v1/work-items \
-  -H "X-User-Id: cmvbva00d0000d9tktpexpo4x"
+curl -c /tmp/dashboard.cookies -X POST http://localhost:3000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"dev@example.com","password":"<DEV_USER_PASSWORD>"}'
 ```
 
-### 2. Create a Work Item (Idempotent)
+### 2. List Work Items
+```sh
+curl -b /tmp/dashboard.cookies http://localhost:3000/api/v1/work-items
+```
+
+### 3. Create a Work Item (Idempotent)
 ```sh
 curl -X POST http://localhost:3000/api/v1/work-items \
+  -b /tmp/dashboard.cookies \
   -H "Content-Type: application/json" \
-  -H "X-User-Id: cmvbva00d0000d9tktpexpo4x" \
   -H "Idempotency-Key: 11111111-2222-3333-4444-555555555555" \
   -d '{
     "title": "Payment gateway timeout on checkout",
@@ -166,12 +194,12 @@ curl -X POST http://localhost:3000/api/v1/work-items \
   }'
 ```
 
-### 3. Update with Optimistic Concurrency Control (OCC)
+### 4. Update with Optimistic Concurrency Control (OCC)
 ```sh
 # Update using If-Match header matching current version
 curl -X PATCH http://localhost:3000/api/v1/work-items/<ITEM_ID> \
+  -b /tmp/dashboard.cookies \
   -H "Content-Type: application/json" \
-  -H "X-User-Id: cmvbva00d0000d9tktpexpo4x" \
   -H "If-Match: \"1\"" \
   -d '{
     "priority": "URGENT"
@@ -181,22 +209,22 @@ curl -X PATCH http://localhost:3000/api/v1/work-items/<ITEM_ID> \
 # {"error":"Work item changed; refresh before retrying","current":{"id":"...","version":2,...}}
 ```
 
-### 4. Transition State
+### 5. Transition State
 ```sh
 curl -X POST http://localhost:3000/api/v1/work-items/<ITEM_ID>/transition \
+  -b /tmp/dashboard.cookies \
   -H "Content-Type: application/json" \
-  -H "X-User-Id: cmvbva00d0000d9tktpexpo4x" \
   -d '{
     "version": 2,
     "target_status": "IN_PROGRESS"
   }'
 ```
 
-### 5. Add a Comment (Audit Timeline)
+### 6. Add a Comment (Audit Timeline)
 ```sh
 curl -X POST http://localhost:3000/api/v1/work-items/<ITEM_ID>/comments \
+  -b /tmp/dashboard.cookies \
   -H "Content-Type: application/json" \
-  -H "X-User-Id: cmvbva00d0000d9tktpexpo4x" \
   -H "Idempotency-Key: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" \
   -d '{
     "body": "Root cause identified: connection pool saturation.",

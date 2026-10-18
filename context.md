@@ -49,7 +49,7 @@ To demonstrate system reliability beyond basic CRUD operations, the application 
 ### 3. Reliable Asynchronous Processing via Transactional Outbox
 
 - **Mechanism:** Secondary work (Slack alerts, email notifications, activity webhooks) is written to an `outbox_events` table inside the _same_ database transaction as the work item update.
-- **Behavior:** A background worker polls or listens for pending outbox entries, pushes them to an asynchronous queue with exponential backoff retries, ensuring 100% notification reliability without blocking main API responses.
+- **Behavior:** A background poller hands pending outbox rows to BullMQ, which retries failed jobs with exponential backoff. Outbox state is reconciled with queue completion/failure; processing is at-least-once rather than exactly-once.
 
 ---
 
@@ -120,9 +120,9 @@ This document outlines the API endpoints designed to handle core workflow contro
 
 | Method  | Endpoint                     | Description                                      | Headers / Parameters | Status |
 | :------ | :--------------------------- | :----------------------------------------------- | :------------------- | :----- |
-| **GET** | `/api/v1/users/me`           | Fetch authenticated user, roles, and team scopes | Header: `X-User-Id`  | Complete |
-| **GET** | `/api/v1/teams`              | List operational teams                           | Header: `X-User-Id`  | Complete |
-| **GET** | `/api/v1/teams/{id}/members` | List members of a specific team                  | Header: `X-User-Id`  | Complete |
+| **GET** | `/api/v1/users/me`           | Fetch authenticated user, roles, and team scopes | Cookie: `sid`        | Complete |
+| **GET** | `/api/v1/teams`              | List operational teams                           | Cookie: `sid`        | Complete |
+| **GET** | `/api/v1/teams/{id}/members` | List members of a specific team                  | Cookie: `sid`        | Complete |
 
 ---
 
@@ -230,3 +230,26 @@ This document outlines the API endpoints designed to handle core workflow contro
    - Embedded component fetching `/api/v1/work-items/:id/timeline`.
    - Comment submission form with automatic client-side `Idempotency-Key` generation.
 
+---
+
+## Current Implementation Notes (2026-10-17)
+
+This is an additive status update to the blueprint above. The older progress and next-step entries describe an earlier point in development; use this section for the current repository snapshot.
+
+### Added since the progress notes above
+
+- **Session authentication:** `/api/v1/auth` now provides login, invitation acceptance, current session lookup, logout, and invitation creation. Passwords use bcrypt; session and invitation tokens are stored as SHA-256 hashes. Protected routes authenticate with the `sid` HTTP-only cookie.
+- **Additional API routes:** Dashboard statistics are available at `/api/v1/dashboard/stats`; global activity and activity-derived notifications are available at `/api/v1/activity` and `/api/v1/notifications`. The work-item router also exposes `/events` using Server-Sent Events.
+- **Dashboard UI:** `apps/web/app/page.tsx` now includes metrics, search and filters, work-item create/edit/assignment/status/approval actions, detail and timeline views, comments, a conflict dialog, and an SSE connection.
+- **Session integration:** The dashboard signs in and signs out through the auth API, all API requests include the HTTP-only session cookie, and SSE uses credentials. API integration test suites log in and reuse the returned cookie rather than sending `X-User-Id`.
+- **Redis integration:** Redis Pub/Sub provides cross-instance SSE fan-out. The PostgreSQL outbox poller enqueues events into BullMQ using the outbox ID as the job ID; Redis must be available at API startup.
+- **Tenant-scoped SSE:** Each SSE connection loads the caller's team memberships and receives only events for those teams. The dashboard refreshes its data when EventSource reconnects.
+- **Shared login throttling:** Failed login attempts are limited to 10 per IP per 15 minutes using Redis, with successful attempts excluded from the counter.
+- **Idempotency expiry:** Expired idempotency keys are ignored and can be reused; a bounded cleanup batch runs at startup and hourly.
+- **Notification read state:** Notifications are derived from team activity, include per-user read receipts, support `unread_only=true`, and can be marked read with `POST /api/v1/notifications/read`.
+
+### Current integration and operational caveats
+
+- The outbox queue currently broadcasts processed events to team-scoped SSE clients; no external notification provider is connected. Delivery is at-least-once, so consumers must tolerate duplicates.
+- Idempotency is required for work-item creation. Comments use idempotency if a key is supplied but currently permit requests without one. Expired-key cleanup exists as a helper, but no periodic cleanup task is configured.
+- Creating invitations requires `ADMIN` or `TEAM_LEAD` membership. Team leads may invite members/viewers; only admins may grant admin or team-lead roles.

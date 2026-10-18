@@ -1,4 +1,6 @@
 import { processOutboxBatch, type OutboxHandler } from "../services/outbox.service.js";
+import { db } from "@repo/db";
+import { outboxQueue } from "../queues/outbox.queue.js";
 
 export class OutboxWorker {
   private intervalTimer: NodeJS.Timeout | null = null;
@@ -35,6 +37,7 @@ export class OutboxWorker {
     this.isProcessing = true;
 
     try {
+      await this.reconcileStaleClaims();
       let count: number;
       do {
         count = await processOutboxBatch(this.handler);
@@ -45,5 +48,59 @@ export class OutboxWorker {
       this.isProcessing = false;
     }
   }
-}
 
+  private async reconcileStaleClaims(): Promise<void> {
+    const staleBefore = new Date(Date.now() - 2 * 60 * 1000);
+    const staleEvents = await db.outboxEvent.findMany({
+      where: {
+        status: "PROCESSING",
+        lockedAt: { lt: staleBefore },
+      },
+      orderBy: { lockedAt: "asc" },
+      take: 50,
+      select: { id: true, lockedAt: true },
+    });
+
+    for (const event of staleEvents) {
+      const job = await outboxQueue.getJob(event.id);
+      if (job) {
+        const state = await job.getState();
+        if (state === "completed") {
+          await db.outboxEvent.updateMany({
+            where: { id: event.id, status: "PROCESSING" },
+            data: {
+              status: "PROCESSED",
+              processedAt: job.finishedOn ? new Date(job.finishedOn) : new Date(),
+              lockedAt: null,
+              lastError: null,
+            },
+          });
+        } else if (state === "failed") {
+          await db.outboxEvent.updateMany({
+            where: { id: event.id, status: "PROCESSING" },
+            data: {
+              status: "FAILED",
+              lockedAt: null,
+              lastError: job.failedReason || "Queue job failed",
+            },
+          });
+        }
+        continue;
+      }
+
+      await db.outboxEvent.updateMany({
+        where: {
+          id: event.id,
+          status: "PROCESSING",
+          lockedAt: event.lockedAt,
+        },
+        data: {
+          status: "PENDING",
+          availableAt: new Date(),
+          lockedAt: null,
+          lastError: "Recovered stale outbox claim without a queue job",
+        },
+      });
+    }
+  }
+}

@@ -10,6 +10,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { createSessionHeaders } from "./helpers/session.mjs";
 
 const BASE = process.env.API_URL ?? "http://localhost:3000";
 const UID = process.env.TEST_USER_ID;
@@ -22,19 +23,21 @@ if (!UID || !TID) {
   );
 }
 
-const H = { "Content-Type": "application/json", "X-User-Id": UID };
+const H = await createSessionHeaders(BASE);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function req(method, path, body, extra = {}) {
+async function reqWithHeaders(headers, method, path, body, extra = {}) {
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: { ...H, ...extra },
+    headers: { ...headers, ...extra },
     body: body ? JSON.stringify(body) : undefined,
   });
   return { status: res.status, headers: res.headers, body: await res.json() };
 }
 
+const req = (method, path, body, extra) =>
+  reqWithHeaders(H, method, path, body, extra);
 const get = (path, extra) => req("GET", path, null, extra);
 const post = (path, body, extra) => req("POST", path, body, extra);
 const patch = (path, body, extra) => req("PATCH", path, body, extra);
@@ -81,10 +84,9 @@ test("GET /db confirms database connection", async () => {
 
 // ─── Authentication guard ─────────────────────────────────────────────────────
 
-test("requests without X-User-Id header are rejected", async () => {
+test("requests without a session cookie are rejected", async () => {
   const r = await fetch(`${BASE}/api/work-items`);
-  // Should be 401 (dev mode) or 400 — not 200
-  assert.notEqual(r.status, 200, "Unauthenticated request should not succeed");
+  assert.equal(r.status, 401);
 });
 
 // ─── Users ────────────────────────────────────────────────────────────────────
@@ -482,6 +484,74 @@ test("GET /api/notifications returns notification list", async () => {
   assert.ok(typeof r.body.total === "number");
 });
 
+test(
+  "notifications support persisted unread filtering and read receipts",
+  {
+    skip:
+      !process.env.TEST_NOTIFICATION_ACTOR_EMAIL ||
+      !process.env.TEST_NOTIFICATION_ACTOR_PASSWORD ||
+      process.env.TEST_NOTIFICATION_ACTOR_EMAIL.toLowerCase() ===
+        (process.env.TEST_USER_EMAIL ?? "dev@example.com").toLowerCase(),
+  },
+  async () => {
+    const actorHeaders = await createSessionHeaders(BASE, {
+      email: process.env.TEST_NOTIFICATION_ACTOR_EMAIL,
+      password: process.env.TEST_NOTIFICATION_ACTOR_PASSWORD,
+    });
+    const item = await createItem();
+
+    const timeline = await reqWithHeaders(
+      actorHeaders,
+      "GET",
+      `/api/work-items/${item.id}/timeline`,
+    );
+    assert.equal(timeline.status, 200);
+    const createdActivity = timeline.body.activities.find(
+      (activity) => activity.type === "CREATED",
+    );
+    assert.ok(createdActivity, "Created activity should appear in timeline");
+
+    const unread = await reqWithHeaders(
+      actorHeaders,
+      "GET",
+      "/api/notifications?unread_only=true&limit=100",
+    );
+    assert.equal(unread.status, 200);
+    assert.ok(unread.body.notifications.some(({ id }) => id === createdActivity.id));
+
+    const marked = await reqWithHeaders(
+      actorHeaders,
+      "POST",
+      "/api/notifications/read",
+      { activityIds: [createdActivity.id] },
+    );
+    assert.equal(marked.status, 200);
+    assert.equal(marked.body.markedRead, 1);
+
+    const afterMarking = await reqWithHeaders(
+      actorHeaders,
+      "GET",
+      "/api/notifications?unread_only=true&limit=100",
+    );
+    assert.equal(afterMarking.status, 200);
+    assert.ok(
+      afterMarking.body.notifications.every(({ id }) => id !== createdActivity.id),
+    );
+
+    const all = await reqWithHeaders(
+      actorHeaders,
+      "GET",
+      "/api/notifications?limit=100",
+    );
+    const notification = all.body.notifications.find(
+      ({ id }) => id === createdActivity.id,
+    );
+    assert.ok(notification, "Read notification should remain in the full list");
+    assert.equal(notification.isRead, true);
+    assert.ok(notification.readAt);
+  },
+);
+
 // ─── v1 prefix parity ────────────────────────────────────────────────────────
 
 test("All routes accessible under /api/v1 prefix", async () => {
@@ -507,4 +577,3 @@ test("Unknown routes return 404 with JSON body", async () => {
   const body = await r.json();
   assert.ok(body.message || body.error, "404 should return JSON error body");
 });
-

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { createSessionHeaders } from "./helpers/session.mjs";
 
 const API_URL = process.env.API_URL ?? "http://localhost:3000";
 const USER_ID = process.env.TEST_USER_ID;
@@ -10,10 +11,7 @@ if (!USER_ID || !TEAM_ID) {
   throw new Error("Set TEST_USER_ID and TEST_TEAM_ID before running tests");
 }
 
-const headers = {
-  "Content-Type": "application/json",
-  "X-User-Id": USER_ID,
-};
+const headers = await createSessionHeaders(API_URL);
 
 async function createItem(title) {
   const res = await fetch(`${API_URL}/api/v1/work-items`, {
@@ -163,4 +161,3 @@ test("POST comments creates audit trail in /timeline", async () => {
   assert.ok(found, "Comment should appear in timeline");
   assert.equal(found.type, "COMMENT_ADDED");
 });
-

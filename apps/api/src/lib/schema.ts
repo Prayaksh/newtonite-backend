@@ -150,7 +150,7 @@ export const createInvitationSchema = z
       .email("Invalid email format")
       .transform((val) => val.toLowerCase()),
     teamId: z.string().min(1, "teamId is required"),
-    role: z.enum(["OWNER", "ADMIN", "MEMBER"]).default("MEMBER"),
+    role: z.enum(["ADMIN", "TEAM_LEAD", "MEMBER", "VIEWER"]).default("MEMBER"),
   })
   .strict();
 

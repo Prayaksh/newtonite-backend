@@ -5,6 +5,7 @@ export type OutboxHandler = (event: {
   type: string;
   payload: any;
   workItemId: string | null;
+  teamId: string | null;
 }) => Promise<void>;
 
 // Default handler for outbox events (simulates external dispatch: email, Slack, webhooks)
@@ -28,6 +29,7 @@ export async function processOutboxBatch(
     },
     orderBy: { createdAt: "asc" },
     take: batchSize,
+    include: { workItem: { select: { teamId: true } } },
   });
 
   if (candidates.length === 0) {
@@ -60,16 +62,7 @@ export async function processOutboxBatch(
         type: event.type,
         payload: event.payload,
         workItemId: event.workItemId,
-      });
-
-      await db.outboxEvent.update({
-        where: { id: event.id },
-        data: {
-          status: "PROCESSED",
-          processedAt: new Date(),
-          lockedAt: null,
-          lastError: null,
-        },
+        teamId: event.workItem?.teamId ?? null,
       });
 
       processedCount++;
@@ -98,3 +91,28 @@ export async function processOutboxBatch(
   return processedCount;
 }
 
+export async function markOutboxProcessed(id: string): Promise<void> {
+  await db.outboxEvent.updateMany({
+    where: { id, status: "PROCESSING" },
+    data: {
+      status: "PROCESSED",
+      processedAt: new Date(),
+      lockedAt: null,
+      lastError: null,
+    },
+  });
+}
+
+export async function markOutboxFailed(
+  id: string,
+  errorMessage: string,
+): Promise<void> {
+  await db.outboxEvent.updateMany({
+    where: { id, status: "PROCESSING" },
+    data: {
+      status: "FAILED",
+      lockedAt: null,
+      lastError: errorMessage,
+    },
+  });
+}

@@ -3,13 +3,15 @@ import { Router, Request, Response, CookieOptions } from "express";
 import bcrypt from "bcryptjs";
 
 import { env } from "../config/env.js";
-import { db } from "@repo/db";
+import { db, TeamRole } from "@repo/db";
 import { authenticate, AuthRequest } from "../middlewares/authenticate.js";
+import { loginLimiter } from "../middlewares/rate-limiter.js";
+import { createInvitationSchema } from "../lib/schema.js";
 
 const router: Router = Router();
 
 const isProduction = env.nodeEnv === "production";
-const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const cookieOptions: CookieOptions = {
   httpOnly: true,
@@ -50,7 +52,7 @@ async function createSessionAndSetCookie(
   return rawToken;
 }
 
-router.post("/login", async (req: Request, res: Response) => {
+router.post("/login", loginLimiter, async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
 
@@ -271,21 +273,24 @@ router.post(
     }
   },
 );
-
 router.post(
   "/invitations",
   authenticate,
   async (req: AuthRequest, res: Response) => {
     try {
-      const { email, teamId, role } = req.body;
+      const parseResult = createInvitationSchema.safeParse(req.body);
 
-      if (!email || !teamId) {
+      if (!parseResult.success) {
         return res.status(400).json({
           success: false,
-          message: "Email and teamId are required",
+          message: "Invalid invitation data",
+          errors: parseResult.error.flatten(),
         });
       }
 
+      const { email, teamId, role } = parseResult.data;
+
+      // Verify caller belongs to the target team and has permission (e.g. ADMIN or TEAM_LEAD)
       const callerMembership = await db.teamMembership.findUnique({
         where: {
           userId_teamId: {
@@ -295,10 +300,14 @@ router.post(
         },
       });
 
-      if (!callerMembership) {
+      if (
+        !callerMembership ||
+        (callerMembership.role !== "ADMIN" &&
+          callerMembership.role !== "TEAM_LEAD")
+      ) {
         return res.status(403).json({
           success: false,
-          message: "You are not authorized to invite members to this team",
+          message: "You do not have permission to invite members to this team",
         });
       }
 
@@ -308,10 +317,10 @@ router.post(
 
       const invitation = await db.invitation.create({
         data: {
-          email: normalizeEmail(email),
+          email,
           tokenHash,
           teamId,
-          role: role ?? "MEMBER",
+          role: role as TeamRole, // Casts safely after Zod validation
           invitedByUserId: req.userId!,
           expiresAt,
         },
@@ -322,6 +331,7 @@ router.post(
         invitation: {
           id: invitation.id,
           email: invitation.email,
+          role: invitation.role,
           expiresAt: invitation.expiresAt,
           inviteToken: rawInviteToken,
         },

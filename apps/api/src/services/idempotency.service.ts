@@ -48,10 +48,18 @@ export async function saveIdempotencyRecord(
   });
 }
 
-/** Delete expired idempotency records (for periodic cleanup) */
-export async function purgeExpiredRecords(): Promise<number> {
-  const result = await db.idempotencyKey.deleteMany({
+/** Delete one bounded batch of expired idempotency records. */
+export async function purgeExpiredRecords(batchSize = 500): Promise<number> {
+  const expired = await db.idempotencyKey.findMany({
     where: { expiresAt: { lt: new Date() } },
+    orderBy: { expiresAt: "asc" },
+    take: batchSize,
+    select: { id: true },
+  });
+  if (expired.length === 0) return 0;
+
+  const result = await db.idempotencyKey.deleteMany({
+    where: { id: { in: expired.map(({ id }) => id) } },
   });
   return result.count;
 }

@@ -37,9 +37,14 @@ export async function withIdempotency<T>(
 
   try {
     const result = await db.$transaction(async (tx) => {
-      const existing = await tx.idempotencyKey.findUnique({
+      let existing = await tx.idempotencyKey.findUnique({
         where: { userId_key: { userId, key } },
       });
+
+      if (existing && existing.expiresAt <= new Date()) {
+        await tx.idempotencyKey.deleteMany({ where: { id: existing.id } });
+        existing = null;
+      }
 
       if (existing) {
         if (existing.requestHash !== requestHash) {
@@ -103,11 +108,11 @@ export async function withIdempotency<T>(
   } catch (error) {
     const existing = await db.idempotencyKey
       .findUnique({
-        where: { userId_key: { userId: userId!, key: key! } },
+        where: { userId_key: { userId, key } },
       })
       .catch(() => null);
 
-    if (existing) {
+    if (existing && existing.expiresAt > new Date()) {
       if (existing.requestHash !== requestHash) {
         res.status(409).json({
           error: "Idempotency key was reused with a different request",

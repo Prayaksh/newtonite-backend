@@ -75,7 +75,12 @@ async function occUpdate(
     return { ok: false, reason: "VERSION_CONFLICT", current };
   }
 
-  eventBus.broadcast({ type: outboxType, workItemId: id, data: result });
+  eventBus.broadcast({
+    type: outboxType,
+    teamId: result.teamId,
+    workItemId: id,
+    data: result,
+  });
   return { ok: true, data: result as WorkItemWithRelations };
 }
 
