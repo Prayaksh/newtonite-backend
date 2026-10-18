@@ -24,6 +24,7 @@ An enterprise-grade Operational Work Management System built as a TypeScript mon
 ## The 3 Critical Non-CRUD Engineering Behaviors
 
 ### 1. Optimistic Concurrency Control (OCC)
+
 - **Problem:** Two operators viewing the same work item try to modify or reassign it simultaneously, causing silent overwrites.
 - **Implementation:**
   - Every `WorkItem` record contains an integer `version` incremented on every mutation.
@@ -33,14 +34,16 @@ An enterprise-grade Operational Work Management System built as a TypeScript mon
   - **Conflict Response:** If a race condition occurs, 0 rows are updated and the server returns **`409 Conflict`** with the current server record (`{ error: "Work item changed; refresh before retrying", current: latest }`), allowing clients to resolve diffs cleanly.
 
 ### 2. Idempotency Control (Network Retry Safety)
+
 - **Problem:** Network blips or duplicate form submissions produce duplicate work items or re-executed approvals.
 - **Implementation:**
   - Clients pass an `Idempotency-Key: <UUID>` header on state-changing requests (`POST /api/v1/work-items`, `POST /api/v1/work-items/:id/comments`).
   - Recorded atomically in the database inside the same ACID transaction using an `IdempotencyKey` table with unique constraint on `(userId, key)`.
   - Retried requests with matching keys return the cached status code and response payload immediately without side effects.
-  - Reusing a key with a *different* request payload returns **`409 Conflict`**.
+  - Reusing a key with a _different_ request payload returns **`409 Conflict`**.
 
 ### 3. Reliable Asynchronous Processing via Transactional Outbox
+
 - **Problem:** Dual writes (committing to DB and calling external services like Slack/Email/Webhooks) fail when one succeeds and the other fails.
 - **Implementation:**
   - Events are written to `OutboxEvent` within the **same database transaction** as the work item update.
@@ -48,6 +51,7 @@ An enterprise-grade Operational Work Management System built as a TypeScript mon
   - BullMQ retries failed jobs up to five times with exponential backoff. Completed queue jobs are retained temporarily; failed jobs remain available for inspection.
 
 ### 4. Distributed Real-Time Updates
+
 - API instances publish work-item events through Redis Pub/Sub, and each instance forwards received events to its connected authenticated SSE clients.
 - Redis is required when starting the API. Set `REDIS_URL` to the reachable Redis instance (the local default is `redis://localhost:6379`).
 
@@ -61,31 +65,31 @@ Protected API routes use database-backed sessions. Sign in through `/api/v1/auth
 
 ### Work Items (`/api/v1/work-items`)
 
-| Method | Endpoint | Description | Key Headers / Body |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/work-items` | List & filter items (pagination, status, priority, search) | Params: `page`, `limit`, `team_id`, `status`, `priority`, `assignee_id`, `q` |
-| `POST` | `/api/v1/work-items` | Create new work item | Header: `Idempotency-Key` |
-| `GET` | `/api/v1/work-items/:id` | Get item details | Returns: `ETag: "<version>"` |
-| `PATCH` | `/api/v1/work-items/:id` | Update metadata with OCC | Header: `If-Match` or Body: `version` |
-| `POST` | `/api/v1/work-items/:id/assign` | Claim or reassign item | Header: `If-Match` / Body: `assignee_id`, `version` |
-| `POST` | `/api/v1/work-items/:id/transition` | State machine transition | Header: `If-Match` / Body: `target_status`, `version` |
-| `POST` | `/api/v1/work-items/:id/approve` | Approve item (`PENDING_APPROVAL` $\rightarrow$ `RESOLVED`) | Body: `version`, `reason` (Role: Admin / Team Lead) |
-| `POST` | `/api/v1/work-items/:id/reject` | Reject item (`PENDING_APPROVAL` $\rightarrow$ `IN_PROGRESS`) | Body: `version`, `reason` (Role: Admin / Team Lead) |
-| `POST` | `/api/v1/work-items/:id/comments` | Post comment / internal note | Header: `Idempotency-Key` / Body: `body`, `is_internal` |
-| `GET` | `/api/v1/work-items/:id/timeline` | Immutable activity & audit trail | Params: `limit`, `before_id` |
+| Method  | Endpoint                            | Description                                                  | Key Headers / Body                                                           |
+| :------ | :---------------------------------- | :----------------------------------------------------------- | :--------------------------------------------------------------------------- |
+| `GET`   | `/api/v1/work-items`                | List & filter items (pagination, status, priority, search)   | Params: `page`, `limit`, `team_id`, `status`, `priority`, `assignee_id`, `q` |
+| `POST`  | `/api/v1/work-items`                | Create new work item                                         | Header: `Idempotency-Key`                                                    |
+| `GET`   | `/api/v1/work-items/:id`            | Get item details                                             | Returns: `ETag: "<version>"`                                                 |
+| `PATCH` | `/api/v1/work-items/:id`            | Update metadata with OCC                                     | Header: `If-Match` or Body: `version`                                        |
+| `POST`  | `/api/v1/work-items/:id/assign`     | Claim or reassign item                                       | Header: `If-Match` / Body: `assignee_id`, `version`                          |
+| `POST`  | `/api/v1/work-items/:id/transition` | State machine transition                                     | Header: `If-Match` / Body: `target_status`, `version`                        |
+| `POST`  | `/api/v1/work-items/:id/approve`    | Approve item (`PENDING_APPROVAL` $\rightarrow$ `RESOLVED`)   | Body: `version`, `reason` (Role: Admin / Team Lead)                          |
+| `POST`  | `/api/v1/work-items/:id/reject`     | Reject item (`PENDING_APPROVAL` $\rightarrow$ `IN_PROGRESS`) | Body: `version`, `reason` (Role: Admin / Team Lead)                          |
+| `POST`  | `/api/v1/work-items/:id/comments`   | Post comment / internal note                                 | Header: `Idempotency-Key` / Body: `body`, `is_internal`                      |
+| `GET`   | `/api/v1/work-items/:id/timeline`   | Immutable activity & audit trail                             | Params: `limit`, `before_id`                                                 |
 
 ### Teams & Identity (`/api/v1/...`)
 
-| Method | Endpoint | Description | Key Headers / Body |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/api/v1/auth/login` | Create a session | Body: `email`, `password`; sets `sid` cookie |
-| `GET` | `/api/v1/auth/me` | Verify the current session | Cookie: `sid` |
-| `POST` | `/api/v1/auth/logout` | End the current session | Cookie: `sid` |
-| `GET` | `/api/v1/users/me` | Current user profile, roles, team scopes | Cookie: `sid` |
-| `GET` | `/api/v1/teams` | List operational teams user belongs to | Cookie: `sid` |
-| `GET` | `/api/v1/teams/:id/members` | List members and roles for a team | Cookie: `sid` |
-| `GET` | `/api/v1/notifications` | List team activity notifications; supports `unread_only=true` | Cookie: `sid` |
-| `POST` | `/api/v1/notifications/read` | Mark up to 100 notification activity IDs as read | Cookie: `sid`; Body: `activityIds` |
+| Method | Endpoint                     | Description                                                   | Key Headers / Body                           |
+| :----- | :--------------------------- | :------------------------------------------------------------ | :------------------------------------------- |
+| `POST` | `/api/v1/auth/login`         | Create a session                                              | Body: `email`, `password`; sets `sid` cookie |
+| `GET`  | `/api/v1/auth/me`            | Verify the current session                                    | Cookie: `sid`                                |
+| `POST` | `/api/v1/auth/logout`        | End the current session                                       | Cookie: `sid`                                |
+| `GET`  | `/api/v1/users/me`           | Current user profile, roles, team scopes                      | Cookie: `sid`                                |
+| `GET`  | `/api/v1/teams`              | List operational teams user belongs to                        | Cookie: `sid`                                |
+| `GET`  | `/api/v1/teams/:id/members`  | List members and roles for a team                             | Cookie: `sid`                                |
+| `GET`  | `/api/v1/notifications`      | List team activity notifications; supports `unread_only=true` | Cookie: `sid`                                |
+| `POST` | `/api/v1/notifications/read` | Mark up to 100 notification activity IDs as read              | Cookie: `sid`; Body: `activityIds`           |
 
 ---
 
@@ -112,13 +116,16 @@ stateDiagram-v2
 ## Getting Started
 
 ### Prerequisites
+
 - Node.js >= 24
 - PostgreSQL running locally or in Docker
 - Redis running locally or in Docker
 - pnpm
 
 ### Environment Configuration
+
 Configure `apps/api/.env`:
+
 ```env
 NODE_ENV="development"
 PORT=3000
@@ -126,10 +133,11 @@ REDIS_URL="redis://localhost:6379"
 DATABASE_URL="postgresql://user:password@localhost:5432/dashboard"
 TEST_USER_ID="cmvbva00d0000d9tktpexpo4x"
 TEST_TEAM_ID="cmvbva03c0001d9tkuixolcur"
-DEV_USER_PASSWORD="choose-a-local-development-password"
+DEV_USER_PASSWORD="dev@123"
 ```
 
 ### Database Setup & Seeding
+
 ```sh
 # Start local backing services, including Redis
 docker compose up -d postgres redis
@@ -147,6 +155,7 @@ The seed script requires `DEV_USER_PASSWORD`. Integration tests log in as `dev@e
 The notification read-receipt integration test also runs when `TEST_NOTIFICATION_ACTOR_EMAIL` and `TEST_NOTIFICATION_ACTOR_PASSWORD` are set to a second user who belongs to `TEST_TEAM_ID`.
 
 ### Running the API
+
 ```sh
 # Start development server with hot-reload
 pnpm --filter @repo/api dev
@@ -158,12 +167,14 @@ pnpm --filter @repo/api build
 ### Running Web Tests
 
 Run the React component/unit suite:
+
 ```sh
 pnpm --filter @repo/web test
 ```
 
 The browser E2E suite uses Playwright and a mocked API, so it exercises the real
 dashboard in Chromium without creating or modifying database records:
+
 ```sh
 pnpm --filter @repo/web exec playwright install chromium
 pnpm --filter @repo/web test:e2e
@@ -188,6 +199,7 @@ pnpm --filter @repo/api test:integration
 ## Example Usage
 
 ### 1. Sign In
+
 ```sh
 curl -c /tmp/dashboard.cookies -X POST http://localhost:3000/api/v1/auth/login \
   -H "Content-Type: application/json" \
@@ -195,11 +207,13 @@ curl -c /tmp/dashboard.cookies -X POST http://localhost:3000/api/v1/auth/login \
 ```
 
 ### 2. List Work Items
+
 ```sh
 curl -b /tmp/dashboard.cookies http://localhost:3000/api/v1/work-items
 ```
 
 ### 3. Create a Work Item (Idempotent)
+
 ```sh
 curl -X POST http://localhost:3000/api/v1/work-items \
   -b /tmp/dashboard.cookies \
@@ -215,6 +229,7 @@ curl -X POST http://localhost:3000/api/v1/work-items \
 ```
 
 ### 4. Update with Optimistic Concurrency Control (OCC)
+
 ```sh
 # Update using If-Match header matching current version
 curl -X PATCH http://localhost:3000/api/v1/work-items/<ITEM_ID> \
@@ -230,6 +245,7 @@ curl -X PATCH http://localhost:3000/api/v1/work-items/<ITEM_ID> \
 ```
 
 ### 5. Transition State
+
 ```sh
 curl -X POST http://localhost:3000/api/v1/work-items/<ITEM_ID>/transition \
   -b /tmp/dashboard.cookies \
@@ -241,6 +257,7 @@ curl -X POST http://localhost:3000/api/v1/work-items/<ITEM_ID>/transition \
 ```
 
 ### 6. Add a Comment (Audit Timeline)
+
 ```sh
 curl -X POST http://localhost:3000/api/v1/work-items/<ITEM_ID>/comments \
   -b /tmp/dashboard.cookies \
@@ -255,5 +272,6 @@ curl -X POST http://localhost:3000/api/v1/work-items/<ITEM_ID>/comments \
 ---
 
 ## Documentation
+
 - Detailed architectural trade-offs: [`ENGINEERING_DECISIONS.md`](file:///home/lumas/projects/dashboard/ENGINEERING_DECISIONS.md)
 - System blueprint and progress tracking: [`context.md`](file:///home/lumas/projects/dashboard/context.md)
